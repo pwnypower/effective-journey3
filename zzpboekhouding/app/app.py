@@ -12,6 +12,32 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-me")
 
+
+class IngressMiddleware:
+    """
+    Home Assistant ingress serveert de app onder een prefix-pad zoals
+    /api/hassio_ingress/<token>/ en stuurt dat pad mee in de header X-Ingress-Path.
+    Deze middleware zet dat pad als SCRIPT_NAME, zodat Flask's url_for() automatisch
+    de juiste (prefixed) URLs genereert voor links, formulieren en static assets.
+    Zonder ingress (gewone toegang via poort 5000) is de header afwezig en verandert
+    er niets - de app blijft dan op de root draaien.
+    """
+
+    def __init__(self, wsgi_app):
+        self.wsgi_app = wsgi_app
+
+    def __call__(self, environ, start_response):
+        ingress_path = environ.get("HTTP_X_INGRESS_PATH", "")
+        if ingress_path:
+            environ["SCRIPT_NAME"] = ingress_path
+            path_info = environ.get("PATH_INFO", "")
+            if path_info.startswith(ingress_path):
+                environ["PATH_INFO"] = path_info[len(ingress_path):]
+        return self.wsgi_app(environ, start_response)
+
+
+app.wsgi_app = IngressMiddleware(app.wsgi_app)
+
 DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(__file__), "boekhouding.db"))
 PORT = int(os.environ.get("PORT", "5000"))
 MOLLIE_API_KEY = os.environ.get("MOLLIE_API_KEY", "")
