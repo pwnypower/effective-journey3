@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Boekhouding{% endblock %} - {{ bedrijfsnaam or "ZZP Boekhouding" }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="layout">
+        <nav class="sidebar">
+            <div class="brand">📊 ZZP Boekhouding</div>
+            <a href="{{ url_for('dashboard') }}">Dashboard</a>
+            <a href="{{ url_for('facturen') }}">Facturen</a>
+            <a href="{{ url_for('uitgaven') }}">Uitgaven</a>
+            <a href="{{ url_for('btw_overzicht') }}">BTW-overzicht</a>
+            <a href="{{ url_for('jaaroverzicht') }}">Jaaroverzicht</a>
+            <a href="{{ url_for('klanten') }}">Klanten</a>
+        </nav>
+        <main class="content">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="flash flash-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</body>
+</html>

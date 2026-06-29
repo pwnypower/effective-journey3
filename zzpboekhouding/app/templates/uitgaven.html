@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Uitgaven{% endblock %}
+{% block content %}
+<h1>Uitgaven</h1>
+<div class="actions"><a class="btn" href="{{ url_for('uitgave_nieuw') }}">+ Nieuwe uitgave</a></div>
+<table class="data-table">
+    <thead><tr><th>Datum</th><th>Omschrijving</th><th>Categorie</th><th>Bedrag excl.</th><th>BTW%</th><th>Zakelijk%</th><th></th></tr></thead>
+    <tbody>
+    {% for u in uitgaven %}
+        <tr>
+            <td>{{ u.datum }}</td>
+            <td>{{ u.omschrijving }}</td>
+            <td>{{ u.categorie or "-" }}</td>
+            <td>&euro; {{ "%.2f"|format(u.bedrag_excl_btw) }}</td>
+            <td>{{ u.btw_percentage|int }}%</td>
+            <td>{{ u.zakelijk_percentage|int }}%</td>
+            <td>
+                <form method="post" action="{{ url_for('uitgave_verwijderen', uitgave_id=u.id) }}" style="display:inline" onsubmit="return confirm('Uitgave verwijderen?')">
+                    <button type="submit" class="link-btn">Verwijderen</button>
+                </form>
+            </td>
+        </tr>
+    {% else %}
+        <tr><td colspan="7">Nog geen uitgaven geregistreerd.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

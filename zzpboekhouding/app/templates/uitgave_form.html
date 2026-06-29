@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Nieuwe uitgave{% endblock %}
+{% block content %}
+<h1>Nieuwe uitgave</h1>
+<form method="post" class="form">
+    <label>Datum *<input type="date" name="datum" value="{{ vandaag }}" required></label>
+    <label>Omschrijving *<input type="text" name="omschrijving" required></label>
+    <label>Categorie
+        <select name="categorie">
+            <option value="Kantoorkosten">Kantoorkosten</option>
+            <option value="Software/abonnementen">Software/abonnementen</option>
+            <option value="Reiskosten">Reiskosten</option>
+            <option value="Marketing">Marketing</option>
+            <option value="Materiaal/inventaris">Materiaal/inventaris</option>
+            <option value="Telefoon/internet">Telefoon/internet</option>
+            <option value="Verzekeringen">Verzekeringen</option>
+            <option value="Overig">Overig</option>
+        </select>
+    </label>
+    <div class="form-row">
+        <label>Bedrag excl. BTW *<input type="number" name="bedrag_excl_btw" step="0.01" min="0" required></label>
+        <label>BTW %
+            <select name="btw_percentage">
+                <option value="21" selected>21%</option>
+                <option value="9">9%</option>
+                <option value="0">0%</option>
+            </select>
+        </label>
+    </div>
+    <label>Zakelijk gebruik % (bv. 100% volledig zakelijk, 50% privé/zakelijk gemengd)
+        <input type="number" name="zakelijk_percentage" value="100" min="0" max="100">
+    </label>
+    <label>Leverancier<input type="text" name="leverancier"></label>
+    <label>Notities<textarea name="notities" rows="2"></textarea></label>
+    <button type="submit" class="btn">Opslaan</button>
+</form>
+{% endblock %}

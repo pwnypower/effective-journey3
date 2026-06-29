@@ -1,0 +1,44 @@
+name: "ZZP Boekhouding"
+description: "Lokale boekhoud-webapp voor ZZP'ers: klanten, facturen, uitgaven, BTW-overzicht en Mollie-koppeling."
+version: "1.0.0"
+slug: "zzpboekhouding"
+init: false
+arch:
+  - aarch64
+  - amd64
+  - armv7
+  - armhf
+  - i386
+ports:
+  5000/tcp: 5000
+ports_description:
+  5000/tcp: "Web-interface (zet hierachter je reverse proxy/subdomein voor publieke toegang)"
+map:
+  - addon_config:rw
+  - data:rw
+options:
+  bedrijfsnaam: "Mijn ZZP Bedrijf"
+  kvk_nummer: ""
+  btw_nummer: ""
+  iban: ""
+  app_base_url: ""
+  mollie_api_key: ""
+  smtp_host: ""
+  smtp_port: 587
+  smtp_user: ""
+  smtp_password: ""
+  smtp_from: ""
+  smtp_use_tls: true
+schema:
+  bedrijfsnaam: "str"
+  kvk_nummer: "str?"
+  btw_nummer: "str?"
+  iban: "str?"
+  app_base_url: "str?"
+  mollie_api_key: "str?"
+  smtp_host: "str?"
+  smtp_port: "port?"
+  smtp_user: "str?"
+  smtp_password: "password?"
+  smtp_from: "str?"
+  smtp_use_tls: "bool?"

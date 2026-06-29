@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Facturen{% endblock %}
+{% block content %}
+<h1>Facturen</h1>
+<div class="actions"><a class="btn" href="{{ url_for('factuur_nieuw') }}">+ Nieuwe factuur</a></div>
+<table class="data-table">
+    <thead><tr><th>Nummer</th><th>Klant</th><th>Datum</th><th>Vervaldatum</th><th>Totaal</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for f in facturen %}
+        <tr>
+            <td>{{ f.factuurnummer }}</td>
+            <td>{{ f.klant_naam }}</td>
+            <td>{{ f.factuurdatum }}</td>
+            <td>{{ f.vervaldatum }}</td>
+            <td>&euro; {{ "%.2f"|format(f.totaal) }}</td>
+            <td><span class="status status-{{ f.status }}">{{ f.status }}</span></td>
+            <td><a href="{{ url_for('factuur_bekijken', factuur_id=f.id) }}">Bekijken</a></td>
+        </tr>
+    {% else %}
+        <tr><td colspan="7">Nog geen facturen.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Klant{% endblock %}
+{% block content %}
+<h1>{{ "Klant bewerken" if klant else "Nieuwe klant" }}</h1>
+<form method="post" class="form">
+    <label>Naam *<input type="text" name="naam" required value="{{ klant.naam if klant else '' }}"></label>
+    <label>Contactpersoon<input type="text" name="contactpersoon" value="{{ klant.contactpersoon if klant else '' }}"></label>
+    <label>E-mail<input type="email" name="email" value="{{ klant.email if klant else '' }}"></label>
+    <label>Adres<input type="text" name="adres" value="{{ klant.adres if klant else '' }}"></label>
+    <div class="form-row">
+        <label>Postcode<input type="text" name="postcode" value="{{ klant.postcode if klant else '' }}"></label>
+        <label>Plaats<input type="text" name="plaats" value="{{ klant.plaats if klant else '' }}"></label>
+    </div>
+    <label>Land<input type="text" name="land" value="{{ klant.land if klant else 'Nederland' }}"></label>
+    <div class="form-row">
+        <label>KvK-nummer<input type="text" name="kvk" value="{{ klant.kvk if klant else '' }}"></label>
+        <label>BTW-nummer<input type="text" name="btw_nummer" value="{{ klant.btw_nummer if klant else '' }}"></label>
+    </div>
+    <button type="submit" class="btn">Opslaan</button>
+</form>
+{% endblock %}

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Factuur {{ factuur.factuurnummer }}{% endblock %}
+{% block content %}
+<div class="no-print actions">
+    <button class="btn" onclick="window.print()">Print / Opslaan als PDF</button>
+    <form method="post" action="{{ url_for('factuur_status', factuur_id=factuur.factuur_id) }}" style="display:inline">
+        <select name="status" onchange="this.form.submit()">
+            <option value="concept" {% if factuur.status=='concept' %}selected{% endif %}>Concept</option>
+            <option value="open" {% if factuur.status=='open' %}selected{% endif %}>Open / verzonden</option>
+            <option value="betaald" {% if factuur.status=='betaald' %}selected{% endif %}>Betaald</option>
+            <option value="vervallen" {% if factuur.status=='vervallen' %}selected{% endif %}>Vervallen</option>
+        </select>
+    </form>
+    <form method="post" action="{{ url_for('factuur_versturen', factuur_id=factuur.factuur_id) }}" style="display:inline" onsubmit="return confirm('Factuur per e-mail versturen naar de klant?')">
+        <button type="submit" class="btn" {% if not smtp_actief %}disabled title="Stel SMTP_HOST/SMTP_USER/SMTP_PASSWORD in via .env"{% endif %}>
+            ✉ Versturen per e-mail
+        </button>
+    </form>
+    <form method="post" action="{{ url_for('factuur_mollie_betaallink', factuur_id=factuur.factuur_id) }}" style="display:inline">
+        <button type="submit" class="btn btn-secondary" {% if not mollie_actief %}disabled title="Stel MOLLIE_API_KEY en APP_BASE_URL in via .env"{% endif %}>
+            Mollie betaallink genereren
+        </button>
+    </form>
+    {% if factuur.betaallink %}
+        <a href="{{ factuur.betaallink }}" target="_blank">Betaallink openen ↗</a>
+    {% endif %}
+</div>
+
+<div class="invoice-paper">
+    <div class="invoice-header">
+        <div>
+            <h1>FACTUUR</h1>
+            <p>Factuurnummer: <strong>{{ factuur.factuurnummer }}</strong></p>
+            <p>Factuurdatum: {{ factuur.factuurdatum }}</p>
+            <p>Vervaldatum: {{ factuur.vervaldatum }}</p>
+        </div>
+        <div class="invoice-from">
+            <strong>{{ bedrijfsnaam }}</strong><br>
+            {% if kvk_nummer %}KvK: {{ kvk_nummer }}<br>{% endif %}
+            {% if btw_nummer %}BTW: {{ btw_nummer }}<br>{% endif %}
+            {% if iban %}IBAN: {{ iban }}{% endif %}
+        </div>
+    </div>
+
+    <div class="invoice-to">
+        <strong>Aan:</strong><br>
+        {{ factuur.naam }}<br>
+        {% if factuur.contactpersoon %}t.a.v. {{ factuur.contactpersoon }}<br>{% endif %}
+        {% if factuur.adres %}{{ factuur.adres }}<br>{% endif %}
+        {% if factuur.postcode or factuur.plaats %}{{ factuur.postcode }} {{ factuur.plaats }}<br>{% endif %}
+        {{ factuur.land }}
+    </div>
+
+    <table class="data-table invoice-table">
+        <thead><tr><th>Omschrijving</th><th>Aantal</th><th>Prijs p/s</th><th>BTW</th><th>Bedrag excl.</th></tr></thead>
+        <tbody>
+        {% for r in regels %}
+            <tr>
+                <td>{{ r.omschrijving }}</td>
+                <td>{{ r.aantal }}</td>
+                <td>&euro; {{ "%.2f"|format(r.prijs_per_stuk) }}</td>
+                <td>{{ r.btw_percentage|int }}%</td>
+                <td>&euro; {{ "%.2f"|format(r.aantal * r.prijs_per_stuk) }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="invoice-totals">
+        <div>Subtotaal excl. BTW: <strong>&euro; {{ "%.2f"|format(subtotaal) }}</strong></div>
+        <div>BTW: <strong>&euro; {{ "%.2f"|format(btw_totaal) }}</strong></div>
+        <div class="invoice-total-final">Totaal: <strong>&euro; {{ "%.2f"|format(totaal) }}</strong></div>
+    </div>
+
+    {% if factuur.notities %}
+        <p class="invoice-notes">{{ factuur.notities }}</p>
+    {% endif %}
+</div>
+{% endblock %}

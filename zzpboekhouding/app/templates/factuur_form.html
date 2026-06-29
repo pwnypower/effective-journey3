@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Nieuwe factuur{% endblock %}
+{% block content %}
+<h1>Nieuwe factuur ({{ voorgesteld_nummer }})</h1>
+
+{% if not klanten %}
+<p>Je hebt nog geen klanten. <a href="{{ url_for('klant_nieuw') }}">Voeg eerst een klant toe</a>.</p>
+{% else %}
+<form method="post" class="form">
+    <label>Klant *
+        <select name="klant_id" required>
+            {% for k in klanten %}
+                <option value="{{ k.id }}">{{ k.naam }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    <div class="form-row">
+        <label>Factuurdatum *<input type="date" name="factuurdatum" value="{{ vandaag }}" required></label>
+        <label>Vervaldatum *<input type="date" name="vervaldatum" required></label>
+    </div>
+
+    <h3>Factuurregels</h3>
+    <table class="data-table" id="regels-table">
+        <thead><tr><th>Omschrijving</th><th>Aantal</th><th>Prijs per stuk (excl. BTW)</th><th>BTW %</th><th></th></tr></thead>
+        <tbody id="regels-body">
+            <tr>
+                <td><input type="text" name="omschrijving" required></td>
+                <td><input type="number" name="aantal" value="1" min="0" step="0.01" required style="width:80px"></td>
+                <td><input type="number" name="prijs_per_stuk" value="0" min="0" step="0.01" required style="width:100px"></td>
+                <td>
+                    <select name="btw_percentage">
+                        <option value="21" selected>21%</option>
+                        <option value="9">9%</option>
+                        <option value="0">0%</option>
+                    </select>
+                </td>
+                <td><button type="button" class="link-btn" onclick="verwijderRegel(this)">x</button></td>
+            </tr>
+        </tbody>
+    </table>
+    <button type="button" class="btn btn-secondary" onclick="nieuweRegel()">+ Regel toevoegen</button>
+
+    <label>Notities<textarea name="notities" rows="2"></textarea></label>
+
+    <button type="submit" class="btn">Factuur aanmaken</button>
+</form>
+
+<script>
+function nieuweRegel() {
+    const body = document.getElementById('regels-body');
+    const rij = body.rows[0].cloneNode(true);
+    rij.querySelectorAll('input').forEach(i => { if (i.name !== 'aantal') i.value = i.name === 'prijs_per_stuk' ? '0' : ''; else i.value = '1'; });
+    body.appendChild(rij);
+}
+function verwijderRegel(btn) {
+    const body = document.getElementById('regels-body');
+    if (body.rows.length > 1) btn.closest('tr').remove();
+}
+</script>
+{% endif %}
+{% endblock %}

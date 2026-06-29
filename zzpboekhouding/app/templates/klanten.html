@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Klanten{% endblock %}
+{% block content %}
+<h1>Klanten</h1>
+<div class="actions"><a class="btn" href="{{ url_for('klant_nieuw') }}">+ Nieuwe klant</a></div>
+<table class="data-table">
+    <thead><tr><th>Naam</th><th>Contact</th><th>E-mail</th><th>Plaats</th><th></th></tr></thead>
+    <tbody>
+    {% for k in klanten %}
+        <tr>
+            <td>{{ k.naam }}</td>
+            <td>{{ k.contactpersoon or "-" }}</td>
+            <td>{{ k.email or "-" }}</td>
+            <td>{{ k.plaats or "-" }}</td>
+            <td>
+                <a href="{{ url_for('klant_bewerken', klant_id=k.id) }}">Bewerken</a>
+                <form method="post" action="{{ url_for('klant_verwijderen', klant_id=k.id) }}" style="display:inline" onsubmit="return confirm('Klant verwijderen?')">
+                    <button type="submit" class="link-btn">Verwijderen</button>
+                </form>
+            </td>
+        </tr>
+    {% else %}
+        <tr><td colspan="5">Nog geen klanten toegevoegd.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}
