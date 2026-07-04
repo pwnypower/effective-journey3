@@ -1622,7 +1622,10 @@ def _poll_mollie_status() -> str:
             if not poll_url or not poll_token:
                 return "Poll URL of token niet ingesteld."
             url = f"{poll_url.rstrip('/')}?token={urllib.parse.quote(poll_token)}"
-            req = urllib.request.Request(url, headers={"User-Agent": "ZZP-Boekhouding/2"})
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "Mozilla/5.0 (compatible; ZZP-Boekhouding/2; +https://it-bosch.nl)",
+                "Accept": "application/json",
+            })
             try:
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     updates = _json.loads(resp.read().decode())
