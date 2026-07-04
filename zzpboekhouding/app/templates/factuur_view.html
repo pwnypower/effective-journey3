@@ -12,41 +12,44 @@
 <div class="actions np">
   <form method="POST" action="{{ url_for('factuur_status', fid=factuur.factuur_id) }}" style="display:contents">
     <select name="status" class="inp-select">
-      {% for s in ['concept','open','verzonden','betaald','vervallen'] %}
-      <option value="{{ s }}" {{ 'selected' if factuur.status == s }}>{{ s|upper }}</option>
+      {% for st in ['concept','open','verzonden','betaald','vervallen'] %}
+      <option value="{{ st }}" {{ 'selected' if factuur.status == st }}>{{ st|upper }}</option>
       {% endfor %}
     </select>
-    <button type="submit" class="btn-sec">STATUS BIJWERKEN</button>
+    <button type="submit" class="btn-sec">BIJWERKEN</button>
   </form>
+
+  <div class="actions-sep"></div>
 
   {% if smtp_actief %}
   <form method="POST" action="{{ url_for('factuur_versturen', fid=factuur.factuur_id) }}" style="display:contents">
-    <button type="submit" class="btn" onclick="return confirm('Factuur versturen naar {{ factuur.klant_email }}?')">✉ VERSTUREN</button>
+    <button type="submit" class="btn" onclick="return confirm('Factuur versturen naar {{ factuur.klant_email }}?')">VERSTUREN</button>
   </form>
   {% else %}
-  <button class="btn" disabled title="SMTP instellen in instellingen om te kunnen versturen" style="opacity:0.4;cursor:not-allowed">✉ VERSTUREN</button>
+  <button class="btn" disabled title="Stel SMTP in via Instellingen">VERSTUREN</button>
   {% endif %}
 
   {% if mollie_actief %}
-  <form method="POST" action="{{ url_for('factuur_mollie_betaallink', fid=factuur.factuur_id) }}" style="display:contents">
-    <button type="submit" class="btn-sec">⬡ MOLLIE BETAALLINK</button>
-  </form>
+    {% if not factuur.betaallink %}
+    <form method="POST" action="{{ url_for('factuur_mollie_betaallink', fid=factuur.factuur_id) }}" style="display:contents">
+      <button type="submit" class="btn-sec">BETAALLINK MAKEN</button>
+    </form>
+    {% else %}
+    <a href="{{ factuur.betaallink }}" target="_blank" class="btn-sec">BETAALLINK OPENEN</a>
+    {% endif %}
+    {% if factuur.mollie_payment_id and factuur.status != 'betaald' %}
+    <form method="POST" action="{{ url_for('mollie_check') }}" style="display:contents">
+      <input type="hidden" name="fid" value="{{ factuur.factuur_id }}">
+      <button type="submit" class="btn-sec">CHECK BETALING</button>
+    </form>
+    {% endif %}
   {% endif %}
 
-  {% if factuur.betaallink %}
-  <a href="{{ factuur.betaallink }}" target="_blank" class="btn-sec">↗ BETAALLINK</a>
-  {% endif %}
-
-  {% if mollie_actief and factuur.mollie_payment_id and factuur.status != 'betaald' %}
-  <form method="POST" action="{{ url_for('mollie_check') }}" style="display:contents">
-    <input type="hidden" name="fid" value="{{ factuur.factuur_id }}">
-    <button type="submit" class="btn-sec" title="Haal betaalstatus op bij Mollie">↺ CHECK NU</button>
-  </form>
-  {% endif %}
+  <div class="actions-sep"></div>
 
   <form method="POST" action="{{ url_for('factuur_verwijderen', fid=factuur.factuur_id) }}"
         onsubmit="return confirm('Factuur {{ factuur.factuurnummer }} definitief verwijderen?')" style="display:contents">
-    <button type="submit" class="btn-danger">✕ VERWIJDEREN</button>
+    <button type="submit" class="btn-danger">VERWIJDEREN</button>
   </form>
 </div>
 
