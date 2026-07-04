@@ -5,7 +5,8 @@
       "Bash(pip3 install *)",
       "Bash(docker --version)",
       "Bash(docker compose *)",
-      "Bash(DB_PATH=/tmp/tp.db python3 -c ' *)"
+      "Bash(DB_PATH=/tmp/tp.db python3 -c ' *)",
+      "Bash(git *)"
     ]
   },
   "enableAllProjectMcpServers": true,

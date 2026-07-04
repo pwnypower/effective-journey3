@@ -1,3 +1,5 @@
+.gitignore
+.claude/
 __pycache__/
 *.pyc
 .env
