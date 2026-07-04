@@ -37,6 +37,13 @@
   <a href="{{ factuur.betaallink }}" target="_blank" class="btn-sec">↗ BETAALLINK</a>
   {% endif %}
 
+  {% if mollie_actief and factuur.mollie_payment_id and factuur.status != 'betaald' %}
+  <form method="POST" action="{{ url_for('mollie_check') }}" style="display:contents">
+    <input type="hidden" name="fid" value="{{ factuur.factuur_id }}">
+    <button type="submit" class="btn-sec" title="Haal betaalstatus op bij Mollie">↺ CHECK NU</button>
+  </form>
+  {% endif %}
+
   <form method="POST" action="{{ url_for('factuur_verwijderen', fid=factuur.factuur_id) }}"
         onsubmit="return confirm('Factuur {{ factuur.factuurnummer }} definitief verwijderen?')" style="display:contents">
     <button type="submit" class="btn-danger">✕ VERWIJDEREN</button>

@@ -1214,6 +1214,12 @@ def instellingen():
     db = get_db()
     if request.method == "POST":
         f = request.form
+        # Behoud bestaande waarden als het veld leeg wordt ingestuurd
+        huidig = get_settings()
+        def behoud(key, fallback=""):
+            v = f.get(key, "").strip()
+            return v if v else huidig.get(key, fallback)
+
         db.execute(
             """UPDATE instellingen SET bedrijfsnaam=?,adres=?,postcode=?,stad=?,email=?,telefoon=?,
                kvk=?,btwnummer=?,iban=?,betalingstermijn=?,factuurprefix=?,factuurvolgend=?,
@@ -1226,11 +1232,11 @@ def instellingen():
              f.get("iban",""), int(f.get("betalingstermijn",30)),
              f.get("factuurprefix","FAC"), int(f.get("factuurvolgend",1)),
              f.get("alg_voorwaarden",""), f.get("juridisch_voetnoot",""),
-             f.get("mollie_key_test",""), f.get("mollie_key_live",""), f.get("mollie_mode","test"),
+             behoud("mollie_key_test"), behoud("mollie_key_live"), f.get("mollie_mode","test"),
              f.get("smtp_host",""), int(f.get("smtp_port",587)),
-             f.get("smtp_user",""), f.get("smtp_password",""), f.get("smtp_from",""),
+             f.get("smtp_user",""), behoud("smtp_password"), f.get("smtp_from",""),
              1 if f.get("smtp_use_tls") else 0, f.get("app_base_url",""),
-             f.get("mollie_poll_url",""), f.get("mollie_poll_token",""),
+             f.get("mollie_poll_url",""), behoud("mollie_poll_token"),
              f.get("mollie_relay_url",""), f.get("mollie_bevestiging_url",""))
         )
         db.commit()
@@ -1380,6 +1386,16 @@ def cron_periodiek():
     n = _verwerk_periodieke_facturen()
     flash(f"{n} periodieke factuur(en) verwerkt.", "success")
     return redirect(url_for("periodieke_facturen"))
+
+
+@app.route("/mollie/check", methods=["POST"])
+def mollie_check():
+    fid = request.form.get("fid")
+    _poll_mollie_status()
+    flash("Mollie betaalstatussen opgehaald.", "success")
+    if fid:
+        return redirect(url_for("factuur_bekijken", fid=fid))
+    return redirect(url_for("facturen"))
 
 
 def _verwerk_periodieke_facturen():
