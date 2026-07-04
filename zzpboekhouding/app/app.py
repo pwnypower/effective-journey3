@@ -1000,6 +1000,15 @@ def factuur_mollie_betaallink(fid):
     return redirect(url_for("factuur_bekijken", fid=fid))
 
 
+@app.route("/facturen/<int:fid>/mollie-reset", methods=["POST"])
+def factuur_mollie_reset(fid):
+    db = get_db()
+    db.execute("UPDATE facturen SET betaallink=NULL, mollie_payment_id=NULL WHERE id=?", (fid,))
+    db.commit()
+    flash("Betaallink verwijderd. Je kunt nu een nieuwe aanmaken.", "success")
+    return redirect(url_for("factuur_bekijken", fid=fid))
+
+
 @app.route("/facturen/<int:fid>/versturen", methods=["POST"])
 def factuur_versturen(fid):
     db = get_db()

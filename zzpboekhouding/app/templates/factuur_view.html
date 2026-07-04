@@ -36,6 +36,10 @@
     </form>
     {% else %}
     <a href="{{ factuur.betaallink }}" target="_blank" class="btn-sec">BETAALLINK OPENEN</a>
+    <form method="POST" action="{{ url_for('factuur_mollie_reset', fid=factuur.factuur_id) }}" style="display:contents"
+          onsubmit="return confirm('Betaallink wissen en opnieuw aanmaken?')">
+      <button type="submit" class="btn-sec">↺ RESET LINK</button>
+    </form>
     {% endif %}
     {% if factuur.mollie_payment_id and factuur.status != 'betaald' %}
     <form method="POST" action="{{ url_for('mollie_check') }}" style="display:contents">
