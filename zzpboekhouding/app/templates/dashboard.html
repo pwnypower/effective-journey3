@@ -1,48 +1,85 @@
 {% extends "base.html" %}
-{% block title %}Dashboard{% endblock %}
+{% block title %}Overzicht{% endblock %}
+{% block topbar_title %}FACTUUROVERZICHT {{ jaar }}{% endblock %}
+{% block topbar_extra %}
+  <a href="{{ url_for('factuur_nieuw') }}" class="btn">⊕ NIEUWE FACTUUR</a>
+{% endblock %}
 {% block content %}
-<h1>Dashboard {{ jaar }}</h1>
 
-<div class="cards">
-    <div class="card">
-        <div class="card-label">Omzet dit jaar (excl. BTW)</div>
-        <div class="card-value">&euro; {{ "%.2f"|format(omzet_dit_jaar) }}</div>
+<div class="stats-grid">
+  <div class="stat-card c-amber">
+    <div class="stat-label">OMZET DIT JAAR (EXCL. BTW)</div>
+    <div class="stat-value">€ {{ "%.2f"|format(omzet) }}</div>
+    <div class="stat-sub">EXCL. BTW</div>
+  </div>
+  <div class="stat-card c-muted">
+    <div class="stat-label">KOSTEN DIT JAAR</div>
+    <div class="stat-value">€ {{ "%.2f"|format(kosten) }}</div>
+    <div class="stat-sub">ZAKELIJK DEEL</div>
+  </div>
+  <div class="stat-card {{ 'c-green' if winst >= 0 else 'c-red' }}">
+    <div class="stat-label">WINST VOOR AFTREK</div>
+    <div class="stat-value">€ {{ "%.2f"|format(winst) }}</div>
+    <div class="stat-sub">OMZET MINUS KOSTEN</div>
+  </div>
+  <div class="stat-card {{ 'c-red' if vervallen.n > 0 else 'c-amber' }}">
+    <div class="stat-label">OPENSTAANDE FACTUREN</div>
+    <div class="stat-value">{{ open_f.n }}</div>
+    <div class="stat-sub">
+      {% if vervallen.n > 0 %}{{ vervallen.n }} VERVALLEN &nbsp;·&nbsp; {% endif %}
+      € {{ "%.2f"|format(open_f.bedrag) }}
     </div>
-    <div class="card">
-        <div class="card-label">Kosten dit jaar (excl. BTW)</div>
-        <div class="card-value">&euro; {{ "%.2f"|format(kosten_dit_jaar) }}</div>
-    </div>
-    <div class="card">
-        <div class="card-label">Winst voor aftrek</div>
-        <div class="card-value">&euro; {{ "%.2f"|format(winst_dit_jaar) }}</div>
-    </div>
-    <div class="card {% if vervallen_facturen.n > 0 %}card-warning{% endif %}">
-        <div class="card-label">Openstaande facturen</div>
-        <div class="card-value">{{ open_facturen.n }} (&euro; {{ "%.2f"|format(open_facturen.bedrag) }})</div>
-        {% if vervallen_facturen.n > 0 %}<div class="card-sub">{{ vervallen_facturen.n }} vervallen!</div>{% endif %}
-    </div>
+  </div>
 </div>
 
-<div class="actions">
-    <a class="btn" href="{{ url_for('factuur_nieuw') }}">+ Nieuwe factuur</a>
-    <a class="btn btn-secondary" href="{{ url_for('uitgave_nieuw') }}">+ Nieuwe uitgave</a>
-</div>
-
-<h2>Recente facturen</h2>
+{% if recente %}
 <table class="data-table">
-    <thead><tr><th>Nummer</th><th>Klant</th><th>Datum</th><th>Status</th><th></th></tr></thead>
-    <tbody>
-    {% for f in recente_facturen %}
-        <tr>
-            <td>{{ f.factuurnummer }}</td>
-            <td>{{ f.klant_naam }}</td>
-            <td>{{ f.factuurdatum }}</td>
-            <td><span class="status status-{{ f.status }}">{{ f.status }}</span></td>
-            <td><a href="{{ url_for('factuur_bekijken', factuur_id=f.id) }}">Bekijken</a></td>
-        </tr>
-    {% else %}
-        <tr><td colspan="5">Nog geen facturen. <a href="{{ url_for('factuur_nieuw') }}">Maak je eerste factuur</a>.</td></tr>
+  <thead>
+    <tr>
+      <th>NUMMER</th>
+      <th>KLANT</th>
+      <th>DATUM</th>
+      <th>VERVALDAG</th>
+      <th>TOTAAL</th>
+      <th>STATUS</th>
+      <th>ACTIES</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for f in recente %}
+    <tr>
+      <td><span class="m-amber">{{ f.factuurnummer }}</span></td>
+      <td>{{ f.klant_naam }}</td>
+      <td class="mono" style="font-size:11px;color:var(--muted)">{{ f.factuurdatum }}</td>
+      <td class="mono" style="font-size:11px;color:{% if f.vervaldatum < vandaag and f.status in ('open','verzonden') %}var(--red){% else %}var(--muted){% endif %}">{{ f.vervaldatum }}</td>
+      <td class="mono" style="font-size:13px;font-weight:600">€ {{ "%.2f"|format(totalen[f.id]) }}</td>
+      <td><span class="badge {{ f.status }}">{{ f.status|upper }}</span></td>
+      <td>
+        <a href="{{ url_for('factuur_bekijken', factuur_id=f.id) }}" class="btn-icon" title="Bekijken">⊡</a>
+        <a href="{{ url_for('factuur_bewerken', fid=f.id) }}" class="btn-icon" title="Bewerken">✎</a>
+        <form method="POST" action="{{ url_for('factuur_dupliceren', fid=f.id) }}" style="display:inline">
+          <button type="submit" class="btn-icon" title="Dupliceren">⊕</button>
+        </form>
+      </td>
+    </tr>
     {% endfor %}
-    </tbody>
+  </tbody>
 </table>
+<div style="margin-top:12px;display:flex;gap:8px">
+  <a href="{{ url_for('facturen') }}" class="btn-ghost" style="font-family:var(--font-mono);font-size:10px;letter-spacing:0.08em">ALLE FACTUREN →</a>
+</div>
+{% else %}
+<div class="empty">
+  <div class="empty-icon">⊟</div>
+  <p>Nog geen facturen aangemaakt.</p>
+  <a href="{{ url_for('factuur_nieuw') }}" class="btn">⊕ EERSTE FACTUUR AANMAKEN</a>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const vandaag = "{{ date.today().isoformat() if date is defined else '' }}";
+</script>
 {% endblock %}

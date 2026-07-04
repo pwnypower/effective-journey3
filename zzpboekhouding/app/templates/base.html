@@ -1,32 +1,89 @@
 <!DOCTYPE html>
-<html lang="nl">
+<html lang="nl" class="{{ 'light' if light_mode else 'dark' }}">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Boekhouding{% endblock %} - {{ bedrijfsnaam or "ZZP Boekhouding" }}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}{% endblock %} // {{ settings.bedrijfsnaam or 'Boekhouding' }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <div class="layout">
-        <nav class="sidebar">
-            <div class="brand">📊 ZZP Boekhouding</div>
-            <a href="{{ url_for('dashboard') }}">Dashboard</a>
-            <a href="{{ url_for('facturen') }}">Facturen</a>
-            <a href="{{ url_for('uitgaven') }}">Uitgaven</a>
-            <a href="{{ url_for('btw_overzicht') }}">BTW-overzicht</a>
-            <a href="{{ url_for('jaaroverzicht') }}">Jaaroverzicht</a>
-            <a href="{{ url_for('klanten') }}">Klanten</a>
-        </nav>
-        <main class="content">
-            {% with messages = get_flashed_messages(with_categories=true) %}
-                {% if messages %}
-                    {% for category, message in messages %}
-                        <div class="flash flash-{{ category }}">{{ message }}</div>
-                    {% endfor %}
-                {% endif %}
-            {% endwith %}
-            {% block content %}{% endblock %}
-        </main>
+<div id="app" class="{{ 'sidebar-col' if request.cookies.get('sidebar') == 'col' else '' }}">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-mark">FS</div>
+      <span class="logo-text">{{ settings.bedrijfsnaam or 'Boekhouding' }}</span>
     </div>
+
+    <nav class="sidebar-nav">
+      <a href="{{ url_for('dashboard') }}" class="nav-item {{ 'active' if request.endpoint == 'dashboard' }}">
+        <span class="nav-icon">⊞</span><span class="nav-label">OVERZICHT</span>
+      </a>
+      <a href="{{ url_for('factuur_nieuw') }}" class="nav-item {{ 'active' if request.endpoint == 'factuur_nieuw' }}">
+        <span class="nav-icon">⊕</span><span class="nav-label">NIEUWE FACTUUR</span>
+      </a>
+      <a href="{{ url_for('klanten') }}" class="nav-item {{ 'active' if request.endpoint in ['klanten','klant_nieuw','klant_bewerken'] }}">
+        <span class="nav-icon">◉</span><span class="nav-label">KLANTEN</span>
+      </a>
+      <a href="{{ url_for('producten') }}" class="nav-item {{ 'active' if request.endpoint in ['producten','product_nieuw','product_bewerken'] }}">
+        <span class="nav-icon">◧</span><span class="nav-label">PRODUCTEN</span>
+      </a>
+      <a href="{{ url_for('instellingen') }}" class="nav-item {{ 'active' if request.endpoint == 'instellingen' }}">
+        <span class="nav-icon">⊙</span><span class="nav-label">INSTELLINGEN</span>
+      </a>
+      <div class="nav-div"></div>
+      <a href="{{ url_for('uitgaven') }}" class="nav-item {{ 'active' if request.endpoint in ['uitgaven','uitgave_nieuw','uitgave_bewerken'] }}">
+        <span class="nav-icon">▣</span><span class="nav-label">UITGAVEN</span>
+      </a>
+      <a href="{{ url_for('btw_overzicht') }}" class="nav-item {{ 'active' if request.endpoint == 'btw_overzicht' }}">
+        <span class="nav-icon">◈</span><span class="nav-label">BTW-OVERZICHT</span>
+      </a>
+      <a href="{{ url_for('periodieke_facturen') }}" class="nav-item {{ 'active' if 'periodiek' in (request.endpoint or '') }}">
+        <span class="nav-icon">↺</span><span class="nav-label">PERIODIEK</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <span class="footer-stat">FAC // {{ fac_count }}</span>
+      <span class="footer-stat">KLA // {{ kla_count }}</span>
+    </div>
+    <button class="sidebar-toggle" onclick="toggleSidebar()">◀</button>
+  </aside>
+
+  <!-- Main column -->
+  <div class="main-col">
+    <header class="topbar">
+      <div class="topbar-title">// {% block topbar_title %}{% endblock %}</div>
+      <div class="topbar-actions">
+        <form method="POST" action="{{ url_for('thema_toggle') }}" style="display:inline">
+          <button type="submit" class="btn-ghost">{{ '◐ DONKER' if light_mode else '◑ LICHT' }}</button>
+        </form>
+        {% block topbar_extra %}{% endblock %}
+      </div>
+    </header>
+
+    <main class="content-area">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for cat, msg in messages %}
+          <div class="toast toast-{{ cat }}" onclick="this.remove()">{{ msg }}</div>
+        {% endfor %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</div>
+
+<script>
+function toggleSidebar() {
+  const app = document.getElementById('app');
+  app.classList.toggle('sidebar-col');
+  const col = app.classList.contains('sidebar-col');
+  document.cookie = 'sidebar=' + (col ? 'col' : 'exp') + ';path=/;max-age=31536000';
+}
+</script>
+{% block scripts %}{% endblock %}
 </body>
 </html>

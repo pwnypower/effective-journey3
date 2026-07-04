@@ -1,61 +1,353 @@
 {% extends "base.html" %}
-{% block title %}Nieuwe factuur{% endblock %}
+{% block title %}{{ 'Factuur bewerken' if factuur else 'Nieuwe factuur' }}{% endblock %}
+{% block topbar_title %}{{ 'FACTUUR BEWERKEN — ' + factuur.factuurnummer if factuur else 'NIEUWE FACTUUR' }}{% endblock %}
+{% block topbar_extra %}
+  <a href="{{ url_for('facturen') }}" class="btn-ghost">ANNULEREN</a>
+{% endblock %}
 {% block content %}
-<h1>Nieuwe factuur ({{ voorgesteld_nummer }})</h1>
 
-{% if not klanten %}
-<p>Je hebt nog geen klanten. <a href="{{ url_for('klant_nieuw') }}">Voeg eerst een klant toe</a>.</p>
-{% else %}
-<form method="post" class="form">
-    <label>Klant *
-        <select name="klant_id" required>
-            {% for k in klanten %}
-                <option value="{{ k.id }}">{{ k.naam }}</option>
-            {% endfor %}
-        </select>
-    </label>
-    <div class="form-row">
-        <label>Factuurdatum *<input type="date" name="factuurdatum" value="{{ vandaag }}" required></label>
-        <label>Vervaldatum *<input type="date" name="vervaldatum" required></label>
+<form method="POST" id="fForm">
+<div class="f-layout">
+
+  <!-- Left column -->
+  <div>
+
+    <!-- Factuurgegevens -->
+    <div class="panel">
+      <div class="panel-title">FACTUURGEGEVENS</div>
+      <div class="fg fg3" style="margin-bottom:16px">
+        <div class="field">
+          <label>FACTUURNUMMER</label>
+          <input type="text" name="factuurnummer" value="{{ factuur.factuurnummer if factuur else voorgesteld_nummer }}" required>
+        </div>
+        <div class="field">
+          <label>FACTUURDATUM *</label>
+          <input type="date" name="factuurdatum" id="factuurdatum" value="{{ factuur.factuurdatum if factuur else vandaag }}" required onchange="herbereken_verval()">
+        </div>
+        <div class="field">
+          <label>VERVALDATUM</label>
+          <input type="date" name="vervaldatum" id="vervaldatum" value="{{ factuur.vervaldatum if factuur else '' }}" required>
+          <div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">
+            <button type="button" class="btn-ghost" style="font-size:9px;padding:3px 8px;border:1px solid var(--border)" onclick="setVerval('dagen',30)">+30d</button>
+            <button type="button" class="btn-ghost" style="font-size:9px;padding:3px 8px;border:1px solid var(--border)" onclick="setVerval('dagen',60)">+60d</button>
+            <button type="button" class="btn-ghost" style="font-size:9px;padding:3px 8px;border:1px solid var(--border)" onclick="setVerval('jaar',1)">+1 jaar</button>
+            <button type="button" class="btn-ghost" style="font-size:9px;padding:3px 8px;border:1px solid var(--border)" onclick="setVerval('eoj')">31-12</button>
+            <button type="button" class="btn-ghost" style="font-size:9px;padding:3px 8px;border:1px solid var(--border)" onclick="setVerval('eom')">Einde maand</button>
+          </div>
+        </div>
+      </div>
+      <div class="fg fg3">
+        <div class="field">
+          <label>BETALINGSTERMIJN (DAGEN)</label>
+          <input type="number" name="betalingstermijn" id="betalingstermijn" value="{{ factuur.betalingstermijn if factuur else betalingstermijn }}" min="0" onchange="herbereken_verval()">
+        </div>
+        <div class="field">
+          <label>PROJECTNUMMER</label>
+          <input type="text" name="projectnummer" value="{{ factuur.projectnummer if factuur else '' }}">
+        </div>
+        <div class="field">
+          <label>REFERENTIE</label>
+          <input type="text" name="referentie" value="{{ factuur.referentie if factuur else '' }}">
+        </div>
+      </div>
     </div>
 
-    <h3>Factuurregels</h3>
-    <table class="data-table" id="regels-table">
-        <thead><tr><th>Omschrijving</th><th>Aantal</th><th>Prijs per stuk (excl. BTW)</th><th>BTW %</th><th></th></tr></thead>
-        <tbody id="regels-body">
-            <tr>
-                <td><input type="text" name="omschrijving" required></td>
-                <td><input type="number" name="aantal" value="1" min="0" step="0.01" required style="width:80px"></td>
-                <td><input type="number" name="prijs_per_stuk" value="0" min="0" step="0.01" required style="width:100px"></td>
-                <td>
-                    <select name="btw_percentage">
-                        <option value="21" selected>21%</option>
-                        <option value="9">9%</option>
-                        <option value="0">0%</option>
-                    </select>
-                </td>
-                <td><button type="button" class="link-btn" onclick="verwijderRegel(this)">x</button></td>
-            </tr>
-        </tbody>
-    </table>
-    <button type="button" class="btn btn-secondary" onclick="nieuweRegel()">+ Regel toevoegen</button>
+    <!-- Klantgegevens -->
+    <div class="panel">
+      <div class="panel-title">KLANTGEGEVENS</div>
+      <div class="field">
+        <label>KLANT *</label>
+        <select name="klant_id" id="klantSelect" onchange="toonKlantInfo()" required>
+          <option value="">— selecteer klant —</option>
+          {% for k in klanten %}
+          <option value="{{ k.id }}"
+                  {{ 'selected' if factuur and factuur.klant_id == k.id }}
+                  data-termijn="{{ k.betalingstermijn if k.betalingstermijn is not none else '' }}"
+                  data-info="{{ k.naam }}{% if k.adres %} · {{ k.adres }}{% endif %}{% if k.postcode %}, {{ k.postcode }} {{ k.plaats }}{% endif %}{% if k.btw_nummer %} · BTW: {{ k.btw_nummer }}{% endif %}">
+            {{ k.naam }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="code-box" id="klantInfo" style="{{ '' if factuur else 'display:none' }}">
+        <span id="klantInfoText">{% if factuur %}{{ factuur.naam }}{% endif %}</span>
+      </div>
+      {% if not klanten %}
+      <div class="info-banner" style="margin-top:12px">Geen klanten beschikbaar. <a href="{{ url_for('klant_nieuw') }}" style="color:var(--amber)">Voeg eerst een klant toe →</a></div>
+      {% endif %}
+    </div>
 
-    <label>Notities<textarea name="notities" rows="2"></textarea></label>
+    <!-- Regeloverzicht -->
+    <div class="panel">
+      <div class="panel-title">REGELOVERZICHT</div>
+      <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button type="button" class="btn-sec" onclick="voegRegelToe('st')">+ PRODUCT</button>
+        <button type="button" class="btn-sec" onclick="voegRegelToe('uur')">+ UURWERK</button>
+        {% if producten %}
+        <select id="productSnelkeuze" onchange="kiesProduct()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:7px 10px;font-family:var(--font-mono);font-size:10px;flex:1;min-width:0">
+          <option value="">— snelkeuze product —</option>
+          {% for p in producten %}
+          <option value="{{ p.id }}" data-naam="{{ p.naam }}" data-prijs="{{ p.prijs }}" data-eenheid="{{ p.eenheid }}" data-beschrijving="{{ p.beschrijving or p.naam }}">{{ p.naam }} — € {{ "%.2f"|format(p.prijs) }}</option>
+          {% endfor %}
+        </select>
+        {% endif %}
+      </div>
 
-    <button type="submit" class="btn">Factuur aanmaken</button>
+      <div class="regel-hdr">
+        <span>OMSCHRIJVING</span><span>EENHEID</span><span>AANTAL</span>
+        <span>PRIJS EXCL.</span><span>BTW %</span><span>TOTAAL</span><span></span><span title="Periode">≋</span>
+      </div>
+
+      <div id="regels">
+        {% if regels %}
+          {% for r in regels %}
+          <div class="regel-wrap">
+            <div class="regel-row">
+              <input type="text" name="omschrijving" value="{{ r.omschrijving }}" placeholder="Omschrijving" required>
+              <select name="eenheid">
+                {% for e in ['st','uur','dag','maand','km','kg','m²','ltr'] %}
+                <option value="{{ e }}" {{ 'selected' if r.eenheid == e }}>{{ e }}</option>
+                {% endfor %}
+              </select>
+              <input type="number" name="aantal" value="{{ r.aantal }}" step="0.01" min="0" class="r-aantal" oninput="herbereken()">
+              <input type="number" name="prijs_per_stuk" value="{{ r.prijs_per_stuk }}" step="0.01" min="0" class="r-prijs" oninput="herbereken()">
+              <select name="btw_percentage" class="r-btw" onchange="herbereken()">
+                <option value="0" {{ 'selected' if r.btw_percentage == 0 }}>0%</option>
+                <option value="9" {{ 'selected' if r.btw_percentage == 9 }}>9%</option>
+                <option value="21" {{ 'selected' if r.btw_percentage == 21 }}>21%</option>
+              </select>
+              <span class="regel-totaal">€ {{ "%.2f"|format(r.aantal * r.prijs_per_stuk) }}</span>
+              <button type="button" class="btn-icon d" onclick="verwijderRegel(this)" title="Verwijderen">✕</button>
+              <button type="button" class="btn-icon" onclick="togglePeriode(this)" title="Periode instellen" style="{{ 'color:var(--amber)' if r.periode_van else '' }}">≋</button>
+            </div>
+            <div class="regel-periode {{ 'open' if r.periode_van or r.periode_tot }}">
+              <label>PERIODE</label>
+              <input type="date" name="periode_van" value="{{ r.periode_van or '' }}">
+              <span style="color:var(--muted);font-size:11px">t/m</span>
+              <input type="date" name="periode_tot" value="{{ r.periode_tot or '' }}">
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="regel-wrap">
+            <div class="regel-row">
+              <input type="text" name="omschrijving" placeholder="Omschrijving" required>
+              <select name="eenheid">
+                <option value="st">st</option><option value="uur">uur</option><option value="dag">dag</option>
+                <option value="maand">maand</option><option value="km">km</option><option value="m²">m²</option>
+              </select>
+              <input type="number" name="aantal" value="1" step="0.01" min="0" class="r-aantal" oninput="herbereken()">
+              <input type="number" name="prijs_per_stuk" placeholder="0.00" step="0.01" min="0" class="r-prijs" oninput="herbereken()">
+              <select name="btw_percentage" class="r-btw" onchange="herbereken()">
+                <option value="21">21%</option><option value="9">9%</option><option value="0">0%</option>
+              </select>
+              <span class="regel-totaal">€ 0.00</span>
+              <button type="button" class="btn-icon d" onclick="verwijderRegel(this)" title="Verwijderen">✕</button>
+              <button type="button" class="btn-icon" onclick="togglePeriode(this)" title="Periode instellen">≋</button>
+            </div>
+            <div class="regel-periode">
+              <label>PERIODE</label>
+              <input type="date" name="periode_van">
+              <span style="color:var(--muted);font-size:11px">t/m</span>
+              <input type="date" name="periode_tot">
+            </div>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Korting & Notities -->
+    <div class="panel">
+      <div class="panel-title">KORTING & NOTITIES</div>
+      <div class="fg fg2" style="margin-bottom:16px">
+        <div class="field">
+          <label>KORTINGSTYPE</label>
+          <div style="display:flex">
+            <button type="button" id="kortingPct" onclick="setKortingType('pct')"
+              style="flex:1;padding:9px;font-family:var(--font-mono);font-size:10px;letter-spacing:0.06em;border:1px solid var(--border);background:transparent;cursor:pointer;
+              {{ 'border-color:var(--amber);color:var(--amber)' if not factuur or factuur.korting_type == 'pct' else 'color:var(--muted)' }}">% PERCENTAGE</button>
+            <button type="button" id="kortingAmt" onclick="setKortingType('amt')"
+              style="flex:1;padding:9px;font-family:var(--font-mono);font-size:10px;letter-spacing:0.06em;border:1px solid var(--border);background:transparent;cursor:pointer;
+              {{ 'border-color:var(--amber);color:var(--amber)' if factuur and factuur.korting_type == 'amt' else 'color:var(--muted)' }}">€ BEDRAG</button>
+          </div>
+          <input type="hidden" name="korting_type" id="kortingTypeInput" value="{{ factuur.korting_type if factuur else 'pct' }}">
+        </div>
+        <div class="field">
+          <label>KORTINGSBEDRAG</label>
+          <input type="number" name="korting" id="kortingInput" value="{{ factuur.korting if factuur else '0' }}" step="0.01" min="0" oninput="herbereken()">
+        </div>
+      </div>
+      <div class="field">
+        <label>NOTITIES</label>
+        <textarea name="notities" style="min-height:110px">{{ factuur.notities if factuur else '' }}</textarea>
+      </div>
+    </div>
+
+  </div><!-- /left -->
+
+  <!-- Right column -->
+  <div class="f-sticky">
+    <div class="panel">
+      <div class="panel-title">FINANCIEEL</div>
+      <div class="totals-box">
+        <div class="tr"><span>Subtotaal excl. BTW</span><span id="tSub">€ 0.00</span></div>
+        <div class="tr disc" id="tKortRij" style="display:none"><span>Korting</span><span id="tKort">-€ 0.00</span></div>
+        <div id="tBtw"></div>
+        <div class="tr final"><span>TOTAAL INCL. BTW</span><span id="tTot">€ 0.00</span></div>
+      </div>
+
+      <div class="field" style="margin-top:20px">
+        <label>STATUS</label>
+        <select name="status">
+          {% for s in ['concept','open','verzonden','betaald','vervallen'] %}
+          <option value="{{ s }}" {{ 'selected' if factuur and factuur.status == s or (not factuur and s == 'concept') }}>{{ s|upper }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:20px">
+        <button type="submit" class="btn" style="justify-content:center">{{ 'WIJZIGINGEN OPSLAAN' if factuur else 'FACTUUR AANMAKEN' }}</button>
+        <a href="{{ url_for('facturen') }}" class="btn-ghost" style="text-align:center;font-family:var(--font-mono);font-size:10px;letter-spacing:0.06em;padding:9px 18px">ANNULEREN</a>
+      </div>
+    </div>
+  </div>
+
+</div>
 </form>
 
+{% endblock %}
+
+{% block scripts %}
 <script>
-function nieuweRegel() {
-    const body = document.getElementById('regels-body');
-    const rij = body.rows[0].cloneNode(true);
-    rij.querySelectorAll('input').forEach(i => { if (i.name !== 'aantal') i.value = i.name === 'prijs_per_stuk' ? '0' : ''; else i.value = '1'; });
-    body.appendChild(rij);
+const productenData = {};
+{% for p in producten %}productenData[{{ p.id }}]={naam:{{ p.naam|tojson }},beschr:{{ (p.beschrijving or p.naam)|tojson }},prijs:{{ p.prijs }},eenheid:{{ p.eenheid|tojson }}};{% endfor %}
+const standaardTermijn = {{ standaard_termijn|default(30) }};
+
+function maakRegel(omschr='',eenheid='st',aantal=1,prijs='',btw=21,pv='',pt=''){
+  const wrap=document.createElement('div');
+  wrap.className='regel-wrap';
+  wrap.innerHTML=`
+    <div class="regel-row">
+      <input type="text" name="omschrijving" value="${omschr}" placeholder="Omschrijving" required>
+      <select name="eenheid">${['st','uur','dag','maand','km','kg','m²','ltr'].map(e=>`<option value="${e}"${e===eenheid?' selected':''}>${e}</option>`).join('')}</select>
+      <input type="number" name="aantal" value="${aantal}" step="0.01" min="0" class="r-aantal" oninput="herbereken()">
+      <input type="number" name="prijs_per_stuk" value="${prijs}" step="0.01" min="0" class="r-prijs" oninput="herbereken()">
+      <select name="btw_percentage" class="r-btw" onchange="herbereken()">
+        <option value="21"${btw==21?' selected':''}>21%</option>
+        <option value="9"${btw==9?' selected':''}>9%</option>
+        <option value="0"${btw==0?' selected':''}>0%</option>
+      </select>
+      <span class="regel-totaal">€ 0.00</span>
+      <button type="button" class="btn-icon d" onclick="verwijderRegel(this)" title="Verwijderen">✕</button>
+      <button type="button" class="btn-icon" onclick="togglePeriode(this)" title="Periode instellen">≋</button>
+    </div>
+    <div class="regel-periode${pv||pt?' open':''}">
+      <label>PERIODE</label>
+      <input type="date" name="periode_van" value="${pv}">
+      <span style="color:var(--muted);font-size:11px">t/m</span>
+      <input type="date" name="periode_tot" value="${pt}">
+    </div>`;
+  document.getElementById('regels').appendChild(wrap);
+  herbereken();
 }
-function verwijderRegel(btn) {
-    const body = document.getElementById('regels-body');
-    if (body.rows.length > 1) btn.closest('tr').remove();
+
+function togglePeriode(btn){
+  const periode=btn.closest('.regel-wrap').querySelector('.regel-periode');
+  const open=periode.classList.toggle('open');
+  btn.style.color=open?'var(--amber)':'';
 }
+
+function voegRegelToe(eenheid){ maakRegel('',eenheid,1,'',21); }
+function verwijderRegel(btn){ btn.closest('.regel-wrap').remove(); herbereken(); }
+
+function kiesProduct(){
+  const sel=document.getElementById('productSnelkeuze');
+  const id=sel.value; if(!id||!productenData[id])return;
+  const p=productenData[id];
+  maakRegel(p.beschr,p.eenheid,1,p.prijs,21);
+  sel.value='';
+}
+
+function toonKlantInfo(){
+  const sel=document.getElementById('klantSelect');
+  const opt=sel.options[sel.selectedIndex];
+  const info=opt?opt.dataset.info:'';
+  const box=document.getElementById('klantInfo');
+  document.getElementById('klantInfoText').textContent=info;
+  box.style.display=info?'':'none';
+  // Betalingstermijn: klant-specifiek of standaard
+  const termijn=opt&&opt.dataset.termijn?parseInt(opt.dataset.termijn):standaardTermijn;
+  document.getElementById('betalingstermijn').value=termijn;
+  herbereken_verval();
+}
+
+function herbereken_verval(){
+  const d=document.getElementById('factuurdatum').value;
+  const t=parseInt(document.getElementById('betalingstermijn').value)||30;
+  if(!d)return;
+  const dt=new Date(d); dt.setDate(dt.getDate()+t);
+  document.getElementById('vervaldatum').value=dt.toISOString().split('T')[0];
+}
+
+function setVerval(type, n){
+  const d=document.getElementById('factuurdatum').value;
+  const base=d?new Date(d):new Date();
+  let res;
+  if(type==='dagen'){ res=new Date(base); res.setDate(res.getDate()+n); }
+  else if(type==='jaar'){ res=new Date(base); res.setFullYear(res.getFullYear()+n); }
+  else if(type==='eoj'){ res=new Date(base.getFullYear(),11,31); }
+  else if(type==='eom'){ res=new Date(base.getFullYear(),base.getMonth()+1,0); }
+  if(res) document.getElementById('vervaldatum').value=res.toISOString().split('T')[0];
+}
+
+function fmt(n){return '€ '+n.toFixed(2);}
+
+function herbereken(){
+  const rijen=document.querySelectorAll('.regel-row');
+  let sub=0; const btwMap={};
+  rijen.forEach(row=>{
+    const a=parseFloat(row.querySelector('.r-aantal').value)||0;
+    const p=parseFloat(row.querySelector('.r-prijs').value)||0;
+    const btw=parseFloat(row.querySelector('.r-btw').value)||0;
+    const bedrag=a*p; sub+=bedrag;
+    const span=row.querySelector('.regel-totaal');
+    if(span)span.textContent=fmt(bedrag);
+    btwMap[btw]=(btwMap[btw]||0)+bedrag*btw/100;
+  });
+  const kt=document.getElementById('kortingTypeInput').value;
+  const kv=parseFloat(document.getElementById('kortingInput').value)||0;
+  const kb=kt==='pct'?sub*kv/100:Math.min(kv,sub);
+  const netto=sub-kb;
+  const btwAdj={};
+  Object.entries(btwMap).forEach(([t,b])=>{
+    const ratio=sub>0?b/(sub*(parseFloat(t)/100)):1;
+    btwAdj[t]=Math.max(0,b-kb*(parseFloat(t)/100)*ratio);
+  });
+  const btwtot=Object.values(btwAdj).reduce((a,b)=>a+b,0);
+  document.getElementById('tSub').textContent=fmt(sub);
+  const kr=document.getElementById('tKortRij');
+  if(kb>0){document.getElementById('tKort').textContent='-'+fmt(kb);kr.style.display='';}
+  else kr.style.display='none';
+  document.getElementById('tBtw').innerHTML=Object.entries(btwAdj).sort().map(([t,b])=>
+    b>0.001?`<div class="tr"><span>BTW ${parseInt(t)}%</span><span>${fmt(b)}</span></div>`:''
+  ).join('');
+  document.getElementById('tTot').textContent=fmt(netto+btwtot);
+}
+
+function setKortingType(type){
+  document.getElementById('kortingTypeInput').value=type;
+  ['Pct','Amt'].forEach(t=>{
+    const el=document.getElementById('korting'+t);
+    const active=(t==='Pct'&&type==='pct')||(t==='Amt'&&type==='amt');
+    el.style.borderColor=active?'var(--amber)':'var(--border)';
+    el.style.color=active?'var(--amber)':'var(--muted)';
+  });
+  herbereken();
+}
+
+document.addEventListener('DOMContentLoaded',()=>{
+  toonKlantInfo(); herbereken();
+  if(!document.getElementById('vervaldatum').value)herbereken_verval();
+});
 </script>
-{% endif %}
 {% endblock %}

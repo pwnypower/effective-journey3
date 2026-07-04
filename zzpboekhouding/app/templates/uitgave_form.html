@@ -1,37 +1,64 @@
 {% extends "base.html" %}
-{% block title %}Nieuwe uitgave{% endblock %}
+{% block title %}{{ 'Uitgave bewerken' if uitgave else 'Nieuwe uitgave' }}{% endblock %}
+{% block topbar_title %}{{ 'UITGAVE BEWERKEN' if uitgave else 'NIEUWE UITGAVE' }}{% endblock %}
+{% block topbar_extra %}
+  <a href="{{ url_for('uitgaven') }}" class="btn-ghost">ANNULEREN</a>
+{% endblock %}
 {% block content %}
-<h1>Nieuwe uitgave</h1>
-<form method="post" class="form">
-    <label>Datum *<input type="date" name="datum" value="{{ vandaag }}" required></label>
-    <label>Omschrijving *<input type="text" name="omschrijving" required></label>
-    <label>Categorie
+
+<div style="max-width:680px">
+<form method="POST">
+  <div class="panel">
+    <div class="panel-title">UITGAVEGEGEVENS</div>
+    <div class="fg fg2">
+      <div class="field">
+        <label>DATUM *</label>
+        <input type="date" name="datum" value="{{ uitgave.datum if uitgave else vandaag }}" required>
+      </div>
+      <div class="field">
+        <label>CATEGORIE</label>
         <select name="categorie">
-            <option value="Kantoorkosten">Kantoorkosten</option>
-            <option value="Software/abonnementen">Software/abonnementen</option>
-            <option value="Reiskosten">Reiskosten</option>
-            <option value="Marketing">Marketing</option>
-            <option value="Materiaal/inventaris">Materiaal/inventaris</option>
-            <option value="Telefoon/internet">Telefoon/internet</option>
-            <option value="Verzekeringen">Verzekeringen</option>
-            <option value="Overig">Overig</option>
+          {% for cat in ['Kantoorkosten','Software/abonnementen','Reiskosten','Marketing','Materiaal/inventaris','Telefoon/internet','Verzekeringen','Overig'] %}
+          <option value="{{ cat }}" {{ 'selected' if uitgave and uitgave.categorie == cat }}>{{ cat }}</option>
+          {% endfor %}
         </select>
-    </label>
-    <div class="form-row">
-        <label>Bedrag excl. BTW *<input type="number" name="bedrag_excl_btw" step="0.01" min="0" required></label>
-        <label>BTW %
-            <select name="btw_percentage">
-                <option value="21" selected>21%</option>
-                <option value="9">9%</option>
-                <option value="0">0%</option>
-            </select>
-        </label>
+      </div>
+      <div class="field" style="grid-column:span 2">
+        <label>OMSCHRIJVING *</label>
+        <input type="text" name="omschrijving" value="{{ uitgave.omschrijving if uitgave else '' }}" required>
+      </div>
+      <div class="field">
+        <label>BEDRAG EXCL. BTW *</label>
+        <input type="number" name="bedrag_excl_btw" value="{{ uitgave.bedrag_excl_btw if uitgave else '' }}" step="0.01" min="0" required>
+      </div>
+      <div class="field">
+        <label>BTW %</label>
+        <select name="btw_percentage">
+          {% for p in [21, 9, 0] %}
+          <option value="{{ p }}" {{ 'selected' if uitgave and uitgave.btw_percentage == p or (not uitgave and p == 21) }}>{{ p }}%</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>ZAKELIJK GEBRUIK % (100 = volledig zakelijk)</label>
+        <input type="number" name="zakelijk_percentage" value="{{ uitgave.zakelijk_percentage if uitgave else '100' }}" min="0" max="100">
+      </div>
+      <div class="field">
+        <label>LEVERANCIER</label>
+        <input type="text" name="leverancier" value="{{ uitgave.leverancier if uitgave else '' }}">
+      </div>
     </div>
-    <label>Zakelijk gebruik % (bv. 100% volledig zakelijk, 50% privé/zakelijk gemengd)
-        <input type="number" name="zakelijk_percentage" value="100" min="0" max="100">
-    </label>
-    <label>Leverancier<input type="text" name="leverancier"></label>
-    <label>Notities<textarea name="notities" rows="2"></textarea></label>
-    <button type="submit" class="btn">Opslaan</button>
+    <div class="field" style="margin-top:16px">
+      <label>NOTITIES</label>
+      <textarea name="notities">{{ uitgave.notities if uitgave else '' }}</textarea>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:8px">
+    <button type="submit" class="btn">{{ 'UITGAVE OPSLAAN' if uitgave else 'UITGAVE TOEVOEGEN' }}</button>
+    <a href="{{ url_for('uitgaven') }}" class="btn-ghost" style="font-family:var(--font-mono);font-size:10px;letter-spacing:0.06em;padding:9px 18px">ANNULEREN</a>
+  </div>
 </form>
+</div>
+
 {% endblock %}

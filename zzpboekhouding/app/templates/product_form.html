@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Product bewerken' if product else 'Nieuw product' }}{% endblock %}
+{% block topbar_title %}{{ 'PRODUCT BEWERKEN' if product else 'NIEUW PRODUCT' }}{% endblock %}
+{% block topbar_extra %}
+  <a href="{{ url_for('producten') }}" class="btn-ghost">ANNULEREN</a>
+{% endblock %}
+{% block content %}
+
+<div style="max-width:560px">
+<form method="POST">
+  <div class="panel">
+    <div class="panel-title">PRODUCTGEGEVENS</div>
+    <div class="fg">
+      <div class="fg fg2">
+        <div class="field">
+          <label>NAAM *</label>
+          <input type="text" name="naam" value="{{ product.naam if product else '' }}" required>
+        </div>
+        <div class="field">
+          <label>EENHEID</label>
+          <select name="eenheid">
+            {% for e in ['st','uur','dag','maand','km','kg','m²','ltr'] %}
+            <option value="{{ e }}" {{ 'selected' if product and product.eenheid == e or (not product and e == 'st') }}>{{ e }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>PRIJS PER EENHEID (EXCL. BTW) *</label>
+        <input type="number" name="prijs" value="{{ product.prijs if product else '' }}" step="0.01" min="0" required>
+      </div>
+      <div class="field">
+        <label>OMSCHRIJVING (VERSCHIJNT OP FACTUUR)</label>
+        <textarea name="beschrijving">{{ product.beschrijving if product else '' }}</textarea>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:8px">
+    <button type="submit" class="btn">{{ 'PRODUCT OPSLAAN' if product else 'PRODUCT AANMAKEN' }}</button>
+    <a href="{{ url_for('producten') }}" class="btn-ghost" style="font-family:var(--font-mono);font-size:10px;letter-spacing:0.06em;padding:9px 18px">ANNULEREN</a>
+  </div>
+</form>
+</div>
+
+{% endblock %}

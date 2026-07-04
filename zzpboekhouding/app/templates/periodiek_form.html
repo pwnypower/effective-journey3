@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Schema bewerken' if schema else 'Nieuw schema' }}{% endblock %}
+{% block topbar_title %}{{ 'PERIODIEK SCHEMA BEWERKEN' if schema else 'NIEUW PERIODIEK SCHEMA' }}{% endblock %}
+{% block topbar_extra %}
+  <a href="{{ url_for('periodieke_facturen') }}" class="btn-ghost">ANNULEREN</a>
+{% endblock %}
+{% block content %}
+
+{% set eerst = regels[0] if regels else none %}
+
+<div style="max-width:680px">
+<form method="POST">
+  <div class="panel">
+    <div class="panel-title">SCHEMA-INSTELLINGEN</div>
+    <div class="fg fg2">
+      <div class="field" style="grid-column:span 2">
+        <label>OMSCHRIJVING (VERSCHIJNT OP FACTUURREGELS) *</label>
+        <input type="text" name="omschrijving" value="{{ schema.naam if schema else '' }}" required>
+      </div>
+      <div class="field">
+        <label>KLANT *</label>
+        <select name="klant_id" required>
+          <option value="">— selecteer klant —</option>
+          {% for k in klanten %}
+          <option value="{{ k.id }}" {{ 'selected' if schema and schema.klant_id == k.id }}>{{ k.naam }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>INTERVAL</label>
+        <select name="interval">
+          {% for iv in ['maandelijks','kwartaal','jaarlijks'] %}
+          <option value="{{ iv }}" {{ 'selected' if schema and schema.interval == iv or (not schema and iv == 'maandelijks') }}>{{ iv|capitalize }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>VOLGENDE FACTUURDATUM *</label>
+        <input type="date" name="volgende_datum" value="{{ schema.volgende_datum if schema else vandaag }}" required>
+      </div>
+      <div class="field">
+        <label>BEDRAG EXCL. BTW (HOOFDREGEL) *</label>
+        <input type="number" name="bedrag_excl_btw"
+               value="{{ eerst.prijs_per_stuk if eerst else '' }}"
+               step="0.01" min="0" required>
+      </div>
+      <div class="field">
+        <label>BTW %</label>
+        <select name="btw_percentage">
+          {% for p in [21, 9, 0] %}
+          <option value="{{ p }}" {{ 'selected' if eerst and eerst.btw_percentage == p or (not eerst and p == 21) }}>{{ p }}%</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">EXTRA FACTUURREGELS (optioneel)</div>
+    <div id="periRegels">
+      {% for r in regels[1:] %}
+      <div class="regel-row">
+        <input type="text" name="regel_omschrijving" value="{{ r.omschrijving }}" placeholder="Extra omschrijving">
+        <select name="regel_eenheid">
+          {% for e in ['st','uur','dag','maand'] %}
+          <option value="{{ e }}" {{ 'selected' if r.eenheid == e }}>{{ e }}</option>
+          {% endfor %}
+        </select>
+        <input type="number" name="regel_aantal" value="{{ r.aantal }}" step="0.01" min="0" class="r-aantal">
+        <input type="number" name="regel_prijs" value="{{ r.prijs_per_stuk }}" step="0.01" min="0" class="r-prijs">
+        <select name="regel_btw">
+          <option value="21" {{ 'selected' if r.btw_percentage == 21 }}>21%</option>
+          <option value="9" {{ 'selected' if r.btw_percentage == 9 }}>9%</option>
+          <option value="0" {{ 'selected' if r.btw_percentage == 0 }}>0%</option>
+        </select>
+        <button type="button" class="btn-icon d" onclick="this.closest('.regel-row').remove()">✕</button>
+      </div>
+      {% endfor %}
+    </div>
+    <button type="button" class="btn-sec" style="margin-top:12px" onclick="voegRegelToe()">+ EXTRA REGEL TOEVOEGEN</button>
+  </div>
+
+  <div style="display:flex;gap:8px">
+    <button type="submit" class="btn">{{ 'SCHEMA OPSLAAN' if schema else 'SCHEMA AANMAKEN' }}</button>
+    <a href="{{ url_for('periodieke_facturen') }}" class="btn-ghost" style="font-family:var(--font-mono);font-size:10px;letter-spacing:0.06em;padding:9px 18px">ANNULEREN</a>
+  </div>
+</form>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function voegRegelToe(){
+  const div=document.createElement('div');
+  div.className='regel-row';
+  div.innerHTML=`
+    <input type="text" name="regel_omschrijving" placeholder="Extra omschrijving">
+    <select name="regel_eenheid"><option value="st">st</option><option value="uur">uur</option><option value="dag">dag</option><option value="maand">maand</option></select>
+    <input type="number" name="regel_aantal" value="1" step="0.01" min="0" class="r-aantal">
+    <input type="number" name="regel_prijs" placeholder="0.00" step="0.01" min="0" class="r-prijs">
+    <select name="regel_btw"><option value="21">21%</option><option value="9">9%</option><option value="0">0%</option></select>
+    <button type="button" class="btn-icon d" onclick="this.closest('.regel-row').remove()">✕</button>`;
+  document.getElementById('periRegels').appendChild(div);
+}
+</script>
+{% endblock %}

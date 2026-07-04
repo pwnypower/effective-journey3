@@ -1,44 +1,43 @@
 {% extends "base.html" %}
 {% block title %}BTW-overzicht{% endblock %}
+{% block topbar_title %}BTW-OVERZICHT {{ jaar }}{% endblock %}
+{% block topbar_extra %}
+  <form method="GET" style="display:flex;gap:8px;align-items:center">
+    <input type="number" name="jaar" value="{{ jaar }}" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:7px 10px;font-family:var(--font-mono);font-size:10px;width:80px">
+    <button type="submit" class="btn-sec">TONEN</button>
+  </form>
+{% endblock %}
 {% block content %}
-<h1>BTW-overzicht {{ jaar }}</h1>
-
-<form method="get" class="form-inline">
-    <label>Jaar <input type="number" name="jaar" value="{{ jaar }}" style="width:90px"></label>
-    <button type="submit" class="btn btn-secondary">Tonen</button>
-</form>
 
 <table class="data-table">
-    <thead>
-        <tr>
-            <th>Kwartaal</th>
-            <th>Omzet excl. BTW</th>
-            <th>Kosten excl. BTW</th>
-            <th>BTW verschuldigd (1a/1b)</th>
-            <th>Voorbelasting (5b)</th>
-            <th>Te betalen / terug te vragen</th>
-        </tr>
-    </thead>
-    <tbody>
+  <thead>
+    <tr>
+      <th style="width:80px">KWARTAAL</th>
+      <th>OMZET EXCL. BTW</th>
+      <th>KOSTEN EXCL. BTW</th>
+      <th>BTW VERSCHULDIGD</th>
+      <th>VOORBELASTING</th>
+      <th>TE BETALEN / TERUG</th>
+    </tr>
+  </thead>
+  <tbody>
     {% for k in kwartalen %}
-        <tr>
-            <td>Q{{ k.kwartaal }}</td>
-            <td>&euro; {{ "%.2f"|format(k.omzet_excl) }}</td>
-            <td>&euro; {{ "%.2f"|format(k.kosten_excl) }}</td>
-            <td>&euro; {{ "%.2f"|format(k.btw_verschuldigd) }}</td>
-            <td>&euro; {{ "%.2f"|format(k.btw_voorbelasting) }}</td>
-            <td class="{% if k.btw_te_betalen > 0 %}text-warning{% else %}text-positive{% endif %}">
-                <strong>&euro; {{ "%.2f"|format(k.btw_te_betalen) }}</strong>
-                {% if k.btw_te_betalen <= 0 %}(terug te vragen){% endif %}
-            </td>
-        </tr>
+    <tr>
+      <td><span class="m-amber">Q{{ k.kwartaal }}</span></td>
+      <td class="mono">€ {{ "%.2f"|format(k.omzet_excl) }}</td>
+      <td class="mono">€ {{ "%.2f"|format(k.kosten_excl) }}</td>
+      <td class="mono">€ {{ "%.2f"|format(k.btw_verschuldigd) }}</td>
+      <td class="mono">€ {{ "%.2f"|format(k.btw_voorbelasting) }}</td>
+      <td class="mono" style="font-weight:600;color:{{ 'var(--red)' if k.btw_te_betalen > 0 else 'var(--green)' }}">
+        {% if k.btw_te_betalen <= 0 %}TERUG: {% endif %}€ {{ "%.2f"|format(k.btw_te_betalen|abs) }}
+      </td>
+    </tr>
     {% endfor %}
-    </tbody>
+  </tbody>
 </table>
 
-<p class="hint">
-    Let op: dit is een indicatie op basis van factuur- en uitgavendatums. Check altijd de officiële
-    BTW-aangifte regels (kasstelsel vs. factuurstelsel, drempelbedragen, KOR) op
-    <a href="https://www.belastingdienst.nl" target="_blank">belastingdienst.nl</a> of met je boekhouder.
-</p>
+<div class="info-banner" style="margin-top:20px">
+  <strong>Let op:</strong> Dit is een indicatie op basis van factuur- en uitgavendatums. Controleer altijd de officiële BTW-aangifte regels (kasstelsel vs. factuurstelsel, KOR, drempelbedragen) via <a href="https://www.belastingdienst.nl" target="_blank" style="color:var(--amber)">belastingdienst.nl</a> of je boekhouder.
+</div>
+
 {% endblock %}

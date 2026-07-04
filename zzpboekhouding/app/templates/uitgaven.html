@@ -1,28 +1,53 @@
 {% extends "base.html" %}
 {% block title %}Uitgaven{% endblock %}
+{% block topbar_title %}UITGAVEN{% endblock %}
+{% block topbar_extra %}
+  <a href="{{ url_for('uitgave_nieuw') }}" class="btn">⊕ NIEUWE UITGAVE</a>
+{% endblock %}
 {% block content %}
-<h1>Uitgaven</h1>
-<div class="actions"><a class="btn" href="{{ url_for('uitgave_nieuw') }}">+ Nieuwe uitgave</a></div>
+
+{% if uitgaven %}
 <table class="data-table">
-    <thead><tr><th>Datum</th><th>Omschrijving</th><th>Categorie</th><th>Bedrag excl.</th><th>BTW%</th><th>Zakelijk%</th><th></th></tr></thead>
-    <tbody>
+  <thead>
+    <tr>
+      <th style="width:110px">DATUM</th>
+      <th>OMSCHRIJVING</th>
+      <th style="width:150px">CATEGORIE</th>
+      <th style="width:120px">BEDRAG EXCL.</th>
+      <th style="width:70px">BTW%</th>
+      <th style="width:80px">ZAKELIJK</th>
+      <th style="width:90px">ACTIES</th>
+    </tr>
+  </thead>
+  <tbody>
     {% for u in uitgaven %}
-        <tr>
-            <td>{{ u.datum }}</td>
-            <td>{{ u.omschrijving }}</td>
-            <td>{{ u.categorie or "-" }}</td>
-            <td>&euro; {{ "%.2f"|format(u.bedrag_excl_btw) }}</td>
-            <td>{{ u.btw_percentage|int }}%</td>
-            <td>{{ u.zakelijk_percentage|int }}%</td>
-            <td>
-                <form method="post" action="{{ url_for('uitgave_verwijderen', uitgave_id=u.id) }}" style="display:inline" onsubmit="return confirm('Uitgave verwijderen?')">
-                    <button type="submit" class="link-btn">Verwijderen</button>
-                </form>
-            </td>
-        </tr>
-    {% else %}
-        <tr><td colspan="7">Nog geen uitgaven geregistreerd.</td></tr>
+    <tr>
+      <td class="mono" style="font-size:11px;color:var(--muted)">{{ u.datum }}</td>
+      <td>
+        {{ u.omschrijving }}
+        {% if u.leverancier %}<div class="mono" style="font-size:10px;color:var(--faint)">{{ u.leverancier }}</div>{% endif %}
+      </td>
+      <td class="mono" style="font-size:10px;color:var(--muted)">{{ u.categorie or '—' }}</td>
+      <td class="mono" style="font-size:13px;font-weight:600">€ {{ "%.2f"|format(u.bedrag_excl_btw) }}</td>
+      <td class="mono" style="font-size:11px;color:var(--muted)">{{ u.btw_percentage|int }}%</td>
+      <td class="mono" style="font-size:11px;color:var(--muted)">{{ u.zakelijk_percentage|int }}%</td>
+      <td>
+        <a href="{{ url_for('uitgave_bewerken', uid=u.id) }}" class="btn-icon" title="Bewerken">✎</a>
+        <form method="POST" action="{{ url_for('uitgave_verwijderen', uid=u.id) }}" style="display:inline"
+              onsubmit="return confirm('Uitgave verwijderen?')">
+          <button type="submit" class="btn-icon d">✕</button>
+        </form>
+      </td>
+    </tr>
     {% endfor %}
-    </tbody>
+  </tbody>
 </table>
+{% else %}
+<div class="empty">
+  <div class="empty-icon">▣</div>
+  <p>Nog geen uitgaven geregistreerd.</p>
+  <a href="{{ url_for('uitgave_nieuw') }}" class="btn">⊕ EERSTE UITGAVE TOEVOEGEN</a>
+</div>
+{% endif %}
+
 {% endblock %}

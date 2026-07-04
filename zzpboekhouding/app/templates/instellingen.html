@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+{% block title %}Instellingen{% endblock %}
+{% block topbar_title %}INSTELLINGEN{% endblock %}
+{% block content %}
+
+<div class="tabs">
+  <button class="tab-btn active" onclick="showTab('bedrijf')">BEDRIJF</button>
+  <button class="tab-btn" onclick="showTab('juridisch')">JURIDISCH</button>
+  <button class="tab-btn" onclick="showTab('mollie')">MOLLIE / SMTP</button>
+  <button class="tab-btn" onclick="showTab('nummering')">NUMMERING</button>
+</div>
+
+<form method="POST">
+
+  <!-- Tab: Bedrijf -->
+  <div class="tab-panel active" id="tab-bedrijf">
+    <div class="panel" style="max-width:680px">
+      <div class="panel-title">BEDRIJFSGEGEVENS</div>
+      <div class="fg fg2">
+        <div class="field">
+          <label>BEDRIJFSNAAM *</label>
+          <input type="text" name="bedrijfsnaam" value="{{ s.bedrijfsnaam or '' }}" required>
+        </div>
+        <div class="field">
+          <label>CONTACTPERSOON</label>
+          <input type="text" name="contactpersoon" value="{{ s.contactpersoon or '' }}">
+        </div>
+        <div class="field">
+          <label>EMAIL</label>
+          <input type="email" name="email" value="{{ s.email or '' }}">
+        </div>
+        <div class="field">
+          <label>TELEFOON</label>
+          <input type="tel" name="telefoon" value="{{ s.telefoon or '' }}">
+        </div>
+        <div class="field">
+          <label>STRAAT EN HUISNUMMER</label>
+          <input type="text" name="adres" value="{{ s.adres or '' }}">
+        </div>
+        <div class="field">
+          <label>POSTCODE</label>
+          <input type="text" name="postcode" value="{{ s.postcode or '' }}">
+        </div>
+        <div class="field">
+          <label>STAD</label>
+          <input type="text" name="stad" value="{{ s.stad or '' }}">
+        </div>
+        <div class="field">
+          <label>LAND</label>
+          <input type="text" name="land" value="{{ s.land or 'Nederland' }}">
+        </div>
+        <div class="field">
+          <label>KvK-NUMMER</label>
+          <input type="text" name="kvk" value="{{ s.kvk or '' }}">
+        </div>
+        <div class="field">
+          <label>BTW-NUMMER</label>
+          <input type="text" name="btwnummer" value="{{ s.btwnummer or '' }}">
+        </div>
+        <div class="field">
+          <label>IBAN REKENINGNUMMER</label>
+          <input type="text" name="iban" value="{{ s.iban or '' }}">
+        </div>
+        <div class="field">
+          <label>BETALINGSTERMIJN (DAGEN)</label>
+          <input type="number" name="betalingstermijn" value="{{ s.betalingstermijn or '30' }}" min="0">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Juridisch -->
+  <div class="tab-panel" id="tab-juridisch">
+    <div class="panel" style="max-width:680px">
+      <div class="panel-title">JURIDISCH & COMPLIANCE</div>
+      <div class="fg">
+        <div class="field">
+          <label>ALGEMENE VOORWAARDEN URL / TEKST</label>
+          <input type="text" name="alg_voorwaarden" value="{{ s.alg_voorwaarden or '' }}" placeholder="https://... of korte verwijzing">
+        </div>
+        <div class="field">
+          <label>VOETNOOT OP FACTUUR</label>
+          <textarea name="juridisch_voetnoot" style="min-height:100px">{{ s.juridisch_voetnoot or 'Bij overschrijding van de betalingstermijn bent u van rechtswege in verzuim en is de wettelijke handelsrente (art. 6:119a BW) verschuldigd over het openstaande factuurbedrag.' }}</textarea>
+        </div>
+        <div class="field">
+          <label>PRIVACYBELEID URL</label>
+          <input type="text" name="privacybeleid" value="{{ s.privacybeleid or '' }}">
+        </div>
+      </div>
+
+      <div class="comp-grid" style="margin-top:20px">
+        <div class="comp-item {{ 'ok' if s.bedrijfsnaam and s.kvk and s.btwnummer else 'err' }}">
+          <div class="comp-label">{{ '✓' if s.bedrijfsnaam and s.kvk and s.btwnummer else '○' }} VERPLICHTE FACTUURGEGEVENS</div>
+          <div class="comp-desc">Bedrijfsnaam, KvK en BTW-nummer aanwezig (art. 35a Wet OB 1968)</div>
+        </div>
+        <div class="comp-item {{ 'ok' if s.iban else 'err' }}">
+          <div class="comp-label">{{ '✓' if s.iban else '○' }} BANKREKENING</div>
+          <div class="comp-desc">IBAN rekeningnummer voor betalingsinstructies</div>
+        </div>
+        <div class="comp-item {{ 'ok' if s.alg_voorwaarden else 'err' }}">
+          <div class="comp-label">{{ '✓' if s.alg_voorwaarden else '○' }} ALGEMENE VOORWAARDEN</div>
+          <div class="comp-desc">Aanbevolen voor juridische bescherming bij geschillen</div>
+        </div>
+        <div class="comp-item ok">
+          <div class="comp-label">✓ BETALINGSTERMIJN</div>
+          <div class="comp-desc">Max. 60 dagen B2B (Wet betalingstermijnen zakelijke transacties)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Mollie / SMTP -->
+  <div class="tab-panel" id="tab-mollie">
+    <div class="panel" style="max-width:680px">
+      <div class="panel-title">MOLLIE BETALINGEN</div>
+      <div class="info-banner" style="margin-bottom:16px">Mollie API-sleutel staat nooit in de database. Stel hem in via de Home Assistant add-on configuratie of de omgevingsvariabele <code>MOLLIE_API_KEY</code>.</div>
+      <div class="fg fg2">
+        <div class="field">
+          <label>MOLLIE ACTIEF</label>
+          <select name="mollie_actief">
+            <option value="0" {{ 'selected' if not s.mollie_actief }}>Uitgeschakeld</option>
+            <option value="1" {{ 'selected' if s.mollie_actief }}>Ingeschakeld</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>BASIS-URL (voor redirect/webhook)</label>
+          <input type="text" name="mollie_base_url" value="{{ s.mollie_base_url or '' }}" placeholder="https://mijn-domein.nl">
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="max-width:680px;margin-top:20px">
+      <div class="panel-title">E-MAIL SMTP</div>
+      <div class="info-banner" style="margin-bottom:16px">SMTP-wachtwoord staat nooit in de database. Stel hem in via <code>SMTP_PASS</code> omgevingsvariabele.</div>
+      <div class="fg fg2">
+        <div class="field">
+          <label>SMTP ACTIEF</label>
+          <select name="smtp_actief">
+            <option value="0" {{ 'selected' if not s.smtp_actief }}>Uitgeschakeld</option>
+            <option value="1" {{ 'selected' if s.smtp_actief }}>Ingeschakeld</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>SMTP HOST</label>
+          <input type="text" name="smtp_host" value="{{ s.smtp_host or '' }}" placeholder="smtp.gmail.com">
+        </div>
+        <div class="field">
+          <label>SMTP POORT</label>
+          <input type="number" name="smtp_port" value="{{ s.smtp_port or '587' }}" min="1" max="65535">
+        </div>
+        <div class="field">
+          <label>SMTP GEBRUIKERSNAAM</label>
+          <input type="text" name="smtp_user" value="{{ s.smtp_user or '' }}">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Nummering -->
+  <div class="tab-panel" id="tab-nummering">
+    <div class="panel" style="max-width:680px">
+      <div class="panel-title">FACTUURNUMMERING</div>
+      <div class="info-banner" style="margin-bottom:16px">Verander het volgnummer alleen als je weet wat je doet. Factuurnummers moeten uniek en oplopend zijn voor de Belastingdienst.</div>
+      <div class="fg fg2">
+        <div class="field">
+          <label>FACTUURPREFIX</label>
+          <input type="text" name="factuurprefix" value="{{ s.factuurprefix or 'FACT' }}" maxlength="10">
+        </div>
+        <div class="field">
+          <label>VOLGEND VOLGNUMMER</label>
+          <input type="number" name="factuurvolgend" value="{{ s.factuurvolgend or '1' }}" min="1">
+        </div>
+      </div>
+      <div class="code-box" style="margin-top:16px">
+        Voorbeeld: <span class="m-amber">{{ s.factuurprefix or 'FACT' }}-{{ '%04d'|format((s.factuurvolgend or 1)|int) }}</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:20px;max-width:680px">
+    <button type="submit" class="btn">INSTELLINGEN OPSLAAN</button>
+  </div>
+
+</form>
+
+<!-- Word template (buiten het settings-formulier) -->
+<div class="panel" style="max-width:680px;margin-top:28px">
+  <div class="panel-title">WORD-FACTUURTEMPLATE</div>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.6">
+    Facturen worden via jouw eigen <code>.docx</code>-template gegenereerd. Download de standaard template, open hem in Word, pas de opmaak aan (lettertype, kleuren, logo) en upload hem terug. Houd de <code>{{placeholders}}</code> intact — die worden automatisch ingevuld.
+  </p>
+
+  <div class="code-box" style="margin-bottom:20px;line-height:2">
+    <strong>Beschikbare placeholders:</strong><br>
+    {% raw %}
+    <span class="m-amber">{{factuurnummer}}</span> &nbsp; <span class="m-amber">{{factuurdatum}}</span> &nbsp; <span class="m-amber">{{vervaldatum}}</span> &nbsp; <span class="m-amber">{{projectnummer}}</span><br>
+    <span class="m-amber">{{bedrijfsnaam}}</span> &nbsp; <span class="m-amber">{{kvk}}</span> &nbsp; <span class="m-amber">{{btwnummer}}</span> &nbsp; <span class="m-amber">{{iban}}</span><br>
+    <span class="m-amber">{{klant_naam}}</span> &nbsp; <span class="m-amber">{{klant_adres}}</span> &nbsp; <span class="m-amber">{{klant_postcode_stad}}</span><br>
+    <span class="m-amber">{{subtotaal}}</span> &nbsp; <span class="m-amber">{{totaal}}</span> &nbsp; <span class="m-amber">{{voetnoot}}</span> &nbsp; <span class="m-amber">{{notities}}</span><br>
+    <strong>Tabelloop:</strong> <span class="m-amber">{%tr for r in regels %}...{%tr endfor %}</span> met <span class="m-amber">{{r.omschrijving}}</span> <span class="m-amber">{{r.prijs}}</span> <span class="m-amber">{{r.totaal}}</span> enz.<br>
+    <strong>BTW-loop:</strong> <span class="m-amber">{%tr for b in btw_regels %}BTW {{b.tarief}}% — {{b.bedrag}}{%tr endfor %}</span>
+    {% endraw %}
+  </div>
+
+  <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start">
+    <div>
+      <a href="{{ url_for('word_template_download') }}" class="btn">⬇ TEMPLATE DOWNLOADEN</a>
+      <div style="font-family:var(--font-mono);font-size:10px;color:var(--muted);margin-top:6px">Download huidige template<br>om aan te passen in Word</div>
+    </div>
+
+    <div>
+      <form method="POST" action="{{ url_for('word_template_upload') }}" enctype="multipart/form-data"
+            style="display:flex;gap:8px;align-items:center">
+        <input type="file" name="template" accept=".docx" required
+               style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:7px 10px;font-family:var(--font-mono);font-size:10px">
+        <button type="submit" class="btn-sec">⬆ UPLOADEN</button>
+      </form>
+      <div style="font-family:var(--font-mono);font-size:10px;color:var(--muted);margin-top:6px">Upload jouw aangepaste template</div>
+    </div>
+
+    <div>
+      <form method="POST" action="{{ url_for('word_template_reset') }}"
+            onsubmit="return confirm('Template terugzetten naar standaard?')">
+        <button type="submit" class="btn-ghost" style="font-family:var(--font-mono);font-size:10px;letter-spacing:0.06em;padding:9px 18px;border:1px solid var(--border)">↺ RESET STANDAARD</button>
+      </form>
+      <div style="font-family:var(--font-mono);font-size:10px;color:var(--muted);margin-top:6px">Standaard template herstellen</div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function showTab(name){
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  event.currentTarget.classList.add('active');
+}
+</script>
+{% endblock %}

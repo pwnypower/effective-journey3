@@ -1,79 +1,155 @@
 {% extends "base.html" %}
 {% block title %}Factuur {{ factuur.factuurnummer }}{% endblock %}
+{% block topbar_title %}FACTUUR // {{ factuur.factuurnummer }}{% endblock %}
+{% block topbar_extra %}
+  <a href="{{ url_for('factuur_bewerken', fid=factuur.factuur_id) }}" class="btn-sec np">✎ BEWERKEN</a>
+  <button onclick="window.print()" class="btn np">⊡ AFDRUKKEN</button>
+  {% if has_docx %}<a href="{{ url_for('factuur_word', fid=factuur.factuur_id) }}" class="btn-sec np">⬇ WORD</a>{% endif %}
+{% endblock %}
 {% block content %}
-<div class="no-print actions">
-    <button class="btn" onclick="window.print()">Print / Opslaan als PDF</button>
-    <form method="post" action="{{ url_for('factuur_status', factuur_id=factuur.factuur_id) }}" style="display:inline">
-        <select name="status" onchange="this.form.submit()">
-            <option value="concept" {% if factuur.status=='concept' %}selected{% endif %}>Concept</option>
-            <option value="open" {% if factuur.status=='open' %}selected{% endif %}>Open / verzonden</option>
-            <option value="betaald" {% if factuur.status=='betaald' %}selected{% endif %}>Betaald</option>
-            <option value="vervallen" {% if factuur.status=='vervallen' %}selected{% endif %}>Vervallen</option>
-        </select>
-    </form>
-    <form method="post" action="{{ url_for('factuur_versturen', factuur_id=factuur.factuur_id) }}" style="display:inline" onsubmit="return confirm('Factuur per e-mail versturen naar de klant?')">
-        <button type="submit" class="btn" {% if not smtp_actief %}disabled title="Stel SMTP_HOST/SMTP_USER/SMTP_PASSWORD in via .env"{% endif %}>
-            ✉ Versturen per e-mail
-        </button>
-    </form>
-    <form method="post" action="{{ url_for('factuur_mollie_betaallink', factuur_id=factuur.factuur_id) }}" style="display:inline">
-        <button type="submit" class="btn btn-secondary" {% if not mollie_actief %}disabled title="Stel MOLLIE_API_KEY en APP_BASE_URL in via .env"{% endif %}>
-            Mollie betaallink genereren
-        </button>
-    </form>
-    {% if factuur.betaallink %}
-        <a href="{{ factuur.betaallink }}" target="_blank">Betaallink openen ↗</a>
-    {% endif %}
+
+<!-- Actions -->
+<div class="actions np">
+  <form method="POST" action="{{ url_for('factuur_status', fid=factuur.factuur_id) }}" style="display:flex;gap:8px;align-items:center">
+    <select name="status" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:7px 10px;font-family:var(--font-mono);font-size:10px">
+      {% for s in ['concept','open','verzonden','betaald','vervallen'] %}
+      <option value="{{ s }}" {{ 'selected' if factuur.status == s }}>{{ s|upper }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn-sec">STATUS BIJWERKEN</button>
+  </form>
+
+  {% if smtp_actief %}
+  <form method="POST" action="{{ url_for('factuur_versturen', fid=factuur.factuur_id) }}">
+    <button type="submit" class="btn" onclick="return confirm('Factuur versturen naar {{ factuur.klant_email }}?')">✉ VERSTUREN</button>
+  </form>
+  {% endif %}
+
+  {% if mollie_actief %}
+  <form method="POST" action="{{ url_for('factuur_mollie_betaallink', fid=factuur.factuur_id) }}">
+    <button type="submit" class="btn-sec">⬡ MOLLIE BETAALLINK</button>
+  </form>
+  {% endif %}
+
+  {% if factuur.betaallink %}
+  <a href="{{ factuur.betaallink }}" target="_blank" class="btn-sec">↗ BETAALLINK</a>
+  {% endif %}
+
+  <form method="POST" action="{{ url_for('factuur_verwijderen', fid=factuur.factuur_id) }}"
+        onsubmit="return confirm('Factuur {{ factuur.factuurnummer }} definitief verwijderen?')">
+    <button type="submit" class="btn-danger">✕ VERWIJDEREN</button>
+  </form>
 </div>
 
-<div class="invoice-paper">
-    <div class="invoice-header">
-        <div>
-            <h1>FACTUUR</h1>
-            <p>Factuurnummer: <strong>{{ factuur.factuurnummer }}</strong></p>
-            <p>Factuurdatum: {{ factuur.factuurdatum }}</p>
-            <p>Vervaldatum: {{ factuur.vervaldatum }}</p>
-        </div>
-        <div class="invoice-from">
-            <strong>{{ bedrijfsnaam }}</strong><br>
-            {% if kvk_nummer %}KvK: {{ kvk_nummer }}<br>{% endif %}
-            {% if btw_nummer %}BTW: {{ btw_nummer }}<br>{% endif %}
-            {% if iban %}IBAN: {{ iban }}{% endif %}
-        </div>
+<!-- Factuur canvas -->
+<div class="f-canvas">
+  <div class="f-canvas-hdr">
+    <div>
+      <div style="font-size:22px;font-weight:700;color:#111">{{ settings.bedrijfsnaam }}</div>
+      {% if settings.adres %}<div style="font-size:12px;color:#555;margin-top:4px">{{ settings.adres }}</div>{% endif %}
+      {% if settings.postcode or settings.stad %}<div style="font-size:12px;color:#555">{{ settings.postcode }} {{ settings.stad }}</div>{% endif %}
+      {% if settings.kvk %}<div style="font-size:11px;color:#777;margin-top:4px">KvK: {{ settings.kvk }}</div>{% endif %}
+      {% if settings.btwnummer %}<div style="font-size:11px;color:#777">BTW: {{ settings.btwnummer }}</div>{% endif %}
     </div>
-
-    <div class="invoice-to">
-        <strong>Aan:</strong><br>
-        {{ factuur.naam }}<br>
-        {% if factuur.contactpersoon %}t.a.v. {{ factuur.contactpersoon }}<br>{% endif %}
-        {% if factuur.adres %}{{ factuur.adres }}<br>{% endif %}
-        {% if factuur.postcode or factuur.plaats %}{{ factuur.postcode }} {{ factuur.plaats }}<br>{% endif %}
-        {{ factuur.land }}
+    <div style="text-align:right">
+      <div class="f-canvas-nr">FACTUUR</div>
+      <div style="font-family:'Space Mono',monospace;font-size:20px;font-weight:700;color:#111">{{ factuur.factuurnummer }}</div>
+      <div style="font-family:'Space Mono',monospace;font-size:11px;color:#555;margin-top:8px;line-height:1.8">
+        DATUM: {{ factuur.factuurdatum }}<br>
+        VERVALDATUM: {{ factuur.vervaldatum }}<br>
+        {% if factuur.projectnummer %}PROJECT: {{ factuur.projectnummer }}<br>{% endif %}
+        {% if factuur.referentie %}REF: {{ factuur.referentie }}<br>{% endif %}
+      </div>
     </div>
+  </div>
 
-    <table class="data-table invoice-table">
-        <thead><tr><th>Omschrijving</th><th>Aantal</th><th>Prijs p/s</th><th>BTW</th><th>Bedrag excl.</th></tr></thead>
-        <tbody>
-        {% for r in regels %}
-            <tr>
-                <td>{{ r.omschrijving }}</td>
-                <td>{{ r.aantal }}</td>
-                <td>&euro; {{ "%.2f"|format(r.prijs_per_stuk) }}</td>
-                <td>{{ r.btw_percentage|int }}%</td>
-                <td>&euro; {{ "%.2f"|format(r.aantal * r.prijs_per_stuk) }}</td>
-            </tr>
-        {% endfor %}
-        </tbody>
-    </table>
+  <div class="f-sep"></div>
 
-    <div class="invoice-totals">
-        <div>Subtotaal excl. BTW: <strong>&euro; {{ "%.2f"|format(subtotaal) }}</strong></div>
-        <div>BTW: <strong>&euro; {{ "%.2f"|format(btw_totaal) }}</strong></div>
-        <div class="invoice-total-final">Totaal: <strong>&euro; {{ "%.2f"|format(totaal) }}</strong></div>
+  <div style="margin-bottom:24px">
+    <div style="font-size:11px;font-weight:700;color:#777;letter-spacing:0.08em;margin-bottom:6px">FACTUREREN AAN</div>
+    <div style="font-size:16px;font-weight:700">{{ factuur.naam }}</div>
+    {% if factuur.adres %}<div style="font-size:13px;color:#333;margin-top:2px">{{ factuur.adres }}</div>{% endif %}
+    {% if factuur.postcode or factuur.plaats %}<div style="font-size:13px;color:#333">{{ factuur.postcode }} {{ factuur.plaats }}</div>{% endif %}
+    {% if factuur.btw_nummer %}<div style="font-size:11px;color:#777;margin-top:4px">BTW: {{ factuur.btw_nummer }}</div>{% endif %}
+  </div>
+
+  <table class="f-tbl" style="margin-bottom:24px">
+    <thead>
+      <tr>
+        <th>OMSCHRIJVING</th>
+        <th style="width:70px;text-align:right">AANTAL</th>
+        <th style="width:60px">EENHEID</th>
+        <th style="width:110px;text-align:right">PRIJS EXCL.</th>
+        <th style="width:55px;text-align:right">BTW%</th>
+        <th style="width:110px;text-align:right">TOTAAL</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in regels %}
+      <tr>
+        <td>
+          {{ r.omschrijving }}
+          {% if r.periode_van or r.periode_tot %}
+          <div style="font-family:'Space Mono',monospace;font-size:10px;color:#f0a500;margin-top:2px">
+            {{ r.periode_van or '…' }} t/m {{ r.periode_tot or '…' }}
+          </div>
+          {% endif %}
+        </td>
+        <td style="text-align:right;font-family:'Space Mono',monospace;font-size:12px">{{ r.aantal|int if r.aantal == r.aantal|int else r.aantal }}</td>
+        <td style="font-family:'Space Mono',monospace;font-size:11px;color:#777">{{ r.eenheid or 'st' }}</td>
+        <td style="text-align:right;font-family:'Space Mono',monospace;font-size:12px">€ {{ "%.2f"|format(r.prijs_per_stuk) }}</td>
+        <td style="text-align:right;font-family:'Space Mono',monospace;font-size:11px;color:#777">{{ r.btw_percentage|int }}%</td>
+        <td style="text-align:right;font-family:'Space Mono',monospace;font-size:12px">€ {{ "%.2f"|format(r.aantal * r.prijs_per_stuk) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div style="display:flex;justify-content:flex-end">
+    <div style="min-width:300px">
+      <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13px">
+        <span style="color:#555">Subtotaal excl. BTW</span>
+        <span style="font-family:'Space Mono',monospace">€ {{ "%.2f"|format(bek.subtotaal) }}</span>
+      </div>
+      {% if bek.korting_bedrag > 0 %}
+      <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13px;color:#9b3a3a">
+        <span>Korting</span>
+        <span style="font-family:'Space Mono',monospace">-€ {{ "%.2f"|format(bek.korting_bedrag) }}</span>
+      </div>
+      {% endif %}
+      {% for tarief, btw_bedrag in bek.btw_per_tarief.items()|sort %}
+      {% if btw_bedrag > 0 %}
+      <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13px;color:#555">
+        <span>BTW {{ tarief|int }}%</span>
+        <span style="font-family:'Space Mono',monospace">€ {{ "%.2f"|format(btw_bedrag) }}</span>
+      </div>
+      {% endif %}
+      {% endfor %}
+      <div style="display:flex;justify-content:space-between;padding:12px 0 5px;border-top:3px solid #f0a500;margin-top:8px;font-size:19px;font-weight:700">
+        <span>TOTAAL INCL. BTW</span>
+        <span style="font-family:'Space Mono',monospace">€ {{ "%.2f"|format(bek.totaal) }}</span>
+      </div>
     </div>
+  </div>
 
-    {% if factuur.notities %}
-        <p class="invoice-notes">{{ factuur.notities }}</p>
-    {% endif %}
+  {% if factuur.notities %}
+  <div style="margin-top:24px;border-left:3px solid #f0a500;background:#f8f8f8;padding:14px 18px">
+    <div style="font-size:11px;font-weight:700;color:#777;letter-spacing:0.06em;margin-bottom:6px">NOTITIES</div>
+    <div style="font-size:13px;color:#333">{{ factuur.notities }}</div>
+  </div>
+  {% endif %}
+
+  <div style="margin-top:32px;padding-top:16px;border-top:1px solid #eee;font-family:'Space Mono',monospace;font-size:11px;color:#777;display:flex;flex-wrap:wrap;gap:16px">
+    {% if settings.iban %}<span>IBAN: {{ settings.iban }}</span>{% endif %}
+    {% if settings.btwnummer %}<span>BTW-NR: {{ settings.btwnummer }}</span>{% endif %}
+    {% if settings.kvk %}<span>KVK: {{ settings.kvk }}</span>{% endif %}
+  </div>
+
+  {% set voetnoot = settings.juridisch_voetnoot or 'Bij overschrijding van de betalingstermijn bent u van rechtswege in verzuim en is de wettelijke handelsrente (art. 6:119a BW) verschuldigd over het openstaande factuurbedrag.' %}
+  <div style="margin-top:12px;font-size:11px;color:#aaa;line-height:1.5">{{ voetnoot }}</div>
+  {% if settings.alg_voorwaarden %}
+  <div style="margin-top:4px;font-size:11px;color:#aaa">Algemene voorwaarden: {{ settings.alg_voorwaarden }}</div>
+  {% endif %}
 </div>
+
 {% endblock %}

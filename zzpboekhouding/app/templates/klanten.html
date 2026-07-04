@@ -1,27 +1,53 @@
 {% extends "base.html" %}
 {% block title %}Klanten{% endblock %}
+{% block topbar_title %}KLANTENBEHEER{% endblock %}
+{% block topbar_extra %}
+  <a href="{{ url_for('klant_nieuw') }}" class="btn">⊕ NIEUWE KLANT</a>
+{% endblock %}
 {% block content %}
-<h1>Klanten</h1>
-<div class="actions"><a class="btn" href="{{ url_for('klant_nieuw') }}">+ Nieuwe klant</a></div>
+
+{% if klanten %}
 <table class="data-table">
-    <thead><tr><th>Naam</th><th>Contact</th><th>E-mail</th><th>Plaats</th><th></th></tr></thead>
-    <tbody>
+  <thead>
+    <tr>
+      <th>NAAM / ADRES</th>
+      <th style="width:190px">EMAIL</th>
+      <th style="width:140px">TELEFOON</th>
+      <th style="width:90px">FACTUREN</th>
+      <th style="width:90px">ACTIES</th>
+    </tr>
+  </thead>
+  <tbody>
     {% for k in klanten %}
-        <tr>
-            <td>{{ k.naam }}</td>
-            <td>{{ k.contactpersoon or "-" }}</td>
-            <td>{{ k.email or "-" }}</td>
-            <td>{{ k.plaats or "-" }}</td>
-            <td>
-                <a href="{{ url_for('klant_bewerken', klant_id=k.id) }}">Bewerken</a>
-                <form method="post" action="{{ url_for('klant_verwijderen', klant_id=k.id) }}" style="display:inline" onsubmit="return confirm('Klant verwijderen?')">
-                    <button type="submit" class="link-btn">Verwijderen</button>
-                </form>
-            </td>
-        </tr>
-    {% else %}
-        <tr><td colspan="5">Nog geen klanten toegevoegd.</td></tr>
+    <tr>
+      <td>
+        <div style="font-size:14px">{{ k.naam }}</div>
+        <div class="mono" style="font-size:10px;color:var(--faint);margin-top:2px;line-height:1.6">
+          {% if k.adres %}{{ k.adres }}{% if k.postcode or k.plaats %} · {% endif %}{% endif %}
+          {{ k.postcode or '' }} {{ k.plaats or '' }}
+          {% if k.btw_nummer %} · BTW: {{ k.btw_nummer }}{% endif %}
+        </div>
+      </td>
+      <td class="mono" style="font-size:11px;color:var(--muted)">{{ k.email or '—' }}</td>
+      <td class="mono" style="font-size:11px;color:var(--muted)">{{ k.telefoon or '—' }}</td>
+      <td><span class="m-amber">{{ counts[k.id] }}</span></td>
+      <td>
+        <a href="{{ url_for('klant_bewerken', kid=k.id) }}" class="btn-icon" title="Bewerken">✎</a>
+        <form method="POST" action="{{ url_for('klant_verwijderen', kid=k.id) }}" style="display:inline"
+              onsubmit="return confirm('{{ k.naam }} verwijderen?')">
+          <button type="submit" class="btn-icon d">✕</button>
+        </form>
+      </td>
+    </tr>
     {% endfor %}
-    </tbody>
+  </tbody>
 </table>
+{% else %}
+<div class="empty">
+  <div class="empty-icon">◉</div>
+  <p>Nog geen klanten toegevoegd.</p>
+  <a href="{{ url_for('klant_nieuw') }}" class="btn">⊕ EERSTE KLANT TOEVOEGEN</a>
+</div>
+{% endif %}
+
 {% endblock %}

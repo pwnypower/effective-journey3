@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Producten{% endblock %}
+{% block topbar_title %}PRODUCTBEHEER{% endblock %}
+{% block topbar_extra %}
+  <a href="{{ url_for('product_nieuw') }}" class="btn">⊕ NIEUW PRODUCT</a>
+{% endblock %}
+{% block content %}
+
+{% if producten %}
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>NAAM</th>
+      <th>OMSCHRIJVING</th>
+      <th style="width:80px">EENHEID</th>
+      <th style="width:130px">PRIJS EXCL. BTW</th>
+      <th style="width:90px">ACTIES</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in producten %}
+    <tr>
+      <td style="font-weight:600">{{ p.naam }}</td>
+      <td class="mono" style="font-size:11px;color:var(--muted)">{{ p.beschrijving or '—' }}</td>
+      <td class="mono" style="font-size:11px;color:var(--muted)">{{ p.eenheid }}</td>
+      <td class="mono" style="font-size:13px;font-weight:600">€ {{ "%.2f"|format(p.prijs) }}</td>
+      <td>
+        <a href="{{ url_for('product_bewerken', pid=p.id) }}" class="btn-icon" title="Bewerken">✎</a>
+        <form method="POST" action="{{ url_for('product_verwijderen', pid=p.id) }}" style="display:inline"
+              onsubmit="return confirm('{{ p.naam }} verwijderen?')">
+          <button type="submit" class="btn-icon d">✕</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty">
+  <div class="empty-icon">⊞</div>
+  <p>Nog geen producten of diensten aangemaakt.</p>
+  <a href="{{ url_for('product_nieuw') }}" class="btn">⊕ EERSTE PRODUCT TOEVOEGEN</a>
+</div>
+{% endif %}
+
+{% endblock %}

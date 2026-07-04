@@ -1,28 +1,44 @@
 import os
 import sqlite3
 import smtplib
+import io
+from calendar import monthrange
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from datetime import datetime, date
-from flask import Flask, render_template, request, redirect, url_for, flash, g
+from datetime import datetime, date, timedelta
+from flask import (Flask, render_template, request, redirect, url_for,
+                   flash, g, send_file, make_response, jsonify)
 from dotenv import load_dotenv
 
 load_dotenv()
 
-app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-me")
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    HAS_SCHEDULER = True
+except ImportError:
+    HAS_SCHEDULER = False
+
+try:
+    from docx import Document as DocxDoc
+    from docx.shared import Pt, Cm, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    HAS_DOCX = True
+except ImportError:
+    HAS_DOCX = False
+
+try:
+    from docxtpl import DocxTemplate
+    HAS_DOCXTPL = True
+except ImportError:
+    HAS_DOCXTPL = False
+
+TEMPLATE_PAD = os.environ.get(
+    "TEMPLATE_PAD",
+    os.path.join(os.path.dirname(__file__), "factuur_template.docx")
+)
 
 
 class IngressMiddleware:
-    """
-    Home Assistant ingress serveert de app onder een prefix-pad zoals
-    /api/hassio_ingress/<token>/ en stuurt dat pad mee in de header X-Ingress-Path.
-    Deze middleware zet dat pad als SCRIPT_NAME, zodat Flask's url_for() automatisch
-    de juiste (prefixed) URLs genereert voor links, formulieren en static assets.
-    Zonder ingress (gewone toegang via poort 5000) is de header afwezig en verandert
-    er niets - de app blijft dan op de root draaien.
-    """
-
     def __init__(self, wsgi_app):
         self.wsgi_app = wsgi_app
 
@@ -36,29 +52,29 @@ class IngressMiddleware:
         return self.wsgi_app(environ, start_response)
 
 
+app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-me")
 app.wsgi_app = IngressMiddleware(app.wsgi_app)
 
 DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(__file__), "boekhouding.db"))
 PORT = int(os.environ.get("PORT", "5000"))
-MOLLIE_API_KEY = os.environ.get("MOLLIE_API_KEY", "")
-BEDRIJFSNAAM = os.environ.get("BEDRIJFSNAAM", "Mijn ZZP Bedrijf")
-KVK_NUMMER = os.environ.get("KVK_NUMMER", "")
-BTW_NUMMER = os.environ.get("BTW_NUMMER", "")
-IBAN = os.environ.get("IBAN", "")
 
-# Publieke basis-URL van de app, nodig voor Mollie webhook + redirect.
-# Bij lokaal testen: vul hier je ngrok/Cloudflare Tunnel URL in (zonder trailing slash).
-# Bij hosting: vul hier je echte domein in, bv. https://boekhouding.jouwdomein.nl
-APP_BASE_URL = os.environ.get("APP_BASE_URL", "").rstrip("/")
+# Env-var defaults (used for initial DB seed only)
+_ENV_NAAM = os.environ.get("BEDRIJFSNAAM", "Mijn ZZP Bedrijf")
+_ENV_KVK = os.environ.get("KVK_NUMMER", "")
+_ENV_BTW = os.environ.get("BTW_NUMMER", "")
+_ENV_IBAN = os.environ.get("IBAN", "")
+_ENV_BASE_URL = os.environ.get("APP_BASE_URL", "").rstrip("/")
+_ENV_SMTP_HOST = os.environ.get("SMTP_HOST", "")
+_ENV_SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+_ENV_SMTP_USER = os.environ.get("SMTP_USER", "")
+_ENV_SMTP_PASS = os.environ.get("SMTP_PASSWORD", "")
+_ENV_SMTP_FROM = os.environ.get("SMTP_FROM", _ENV_SMTP_USER)
+_ENV_SMTP_TLS = os.environ.get("SMTP_USE_TLS", "true").lower() == "true"
+_ENV_MOLLIE = os.environ.get("MOLLIE_API_KEY", "")
 
-# SMTP instellingen voor het versturen van facturen per e-mail
-SMTP_HOST = os.environ.get("SMTP_HOST", "")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
-SMTP_USER = os.environ.get("SMTP_USER", "")
-SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
-SMTP_FROM = os.environ.get("SMTP_FROM", SMTP_USER)
-SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "true").lower() == "true"
 
+# ─── Database ─────────────────────────────────────────────────────────────────
 
 def get_db():
     if "db" not in g:
@@ -77,13 +93,13 @@ def close_db(exception=None):
 
 def init_db():
     db = sqlite3.connect(DB_PATH)
-    db.executescript(
-        """
+    db.executescript("""
         CREATE TABLE IF NOT EXISTS klanten (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             naam TEXT NOT NULL,
             contactpersoon TEXT,
             email TEXT,
+            telefoon TEXT,
             adres TEXT,
             postcode TEXT,
             plaats TEXT,
@@ -91,30 +107,33 @@ def init_db():
             kvk TEXT,
             btw_nummer TEXT
         );
-
         CREATE TABLE IF NOT EXISTS facturen (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             factuurnummer TEXT NOT NULL UNIQUE,
             klant_id INTEGER NOT NULL,
             factuurdatum TEXT NOT NULL,
             vervaldatum TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'open',
+            status TEXT NOT NULL DEFAULT 'concept',
             betaallink TEXT,
             mollie_payment_id TEXT,
             notities TEXT,
+            korting REAL NOT NULL DEFAULT 0,
+            korting_type TEXT NOT NULL DEFAULT 'pct',
+            projectnummer TEXT,
+            referentie TEXT,
+            betalingstermijn INTEGER NOT NULL DEFAULT 30,
             FOREIGN KEY (klant_id) REFERENCES klanten (id)
         );
-
         CREATE TABLE IF NOT EXISTS factuurregels (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             factuur_id INTEGER NOT NULL,
             omschrijving TEXT NOT NULL,
             aantal REAL NOT NULL DEFAULT 1,
+            eenheid TEXT NOT NULL DEFAULT 'st',
             prijs_per_stuk REAL NOT NULL,
             btw_percentage REAL NOT NULL DEFAULT 21,
             FOREIGN KEY (factuur_id) REFERENCES facturen (id) ON DELETE CASCADE
         );
-
         CREATE TABLE IF NOT EXISTS uitgaven (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             datum TEXT NOT NULL,
@@ -126,174 +145,613 @@ def init_db():
             leverancier TEXT,
             notities TEXT
         );
-        """
-    )
+        CREATE TABLE IF NOT EXISTS producten (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            naam TEXT NOT NULL,
+            beschrijving TEXT,
+            prijs REAL NOT NULL DEFAULT 0,
+            eenheid TEXT NOT NULL DEFAULT 'st'
+        );
+        CREATE TABLE IF NOT EXISTS instellingen (
+            id INTEGER PRIMARY KEY DEFAULT 1,
+            bedrijfsnaam TEXT NOT NULL DEFAULT '',
+            adres TEXT NOT NULL DEFAULT '',
+            postcode TEXT NOT NULL DEFAULT '',
+            stad TEXT NOT NULL DEFAULT '',
+            email TEXT NOT NULL DEFAULT '',
+            telefoon TEXT NOT NULL DEFAULT '',
+            kvk TEXT NOT NULL DEFAULT '',
+            btwnummer TEXT NOT NULL DEFAULT '',
+            iban TEXT NOT NULL DEFAULT '',
+            betalingstermijn INTEGER NOT NULL DEFAULT 30,
+            factuurprefix TEXT NOT NULL DEFAULT 'FAC',
+            factuurvolgend INTEGER NOT NULL DEFAULT 1,
+            alg_voorwaarden TEXT NOT NULL DEFAULT '',
+            juridisch_voetnoot TEXT NOT NULL DEFAULT '',
+            mollie_key_test TEXT NOT NULL DEFAULT '',
+            mollie_key_live TEXT NOT NULL DEFAULT '',
+            mollie_mode TEXT NOT NULL DEFAULT 'test',
+            smtp_host TEXT NOT NULL DEFAULT '',
+            smtp_port INTEGER NOT NULL DEFAULT 587,
+            smtp_user TEXT NOT NULL DEFAULT '',
+            smtp_password TEXT NOT NULL DEFAULT '',
+            smtp_from TEXT NOT NULL DEFAULT '',
+            smtp_use_tls INTEGER NOT NULL DEFAULT 1,
+            app_base_url TEXT NOT NULL DEFAULT ''
+        );
+        CREATE TABLE IF NOT EXISTS periodieke_facturen (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            naam TEXT NOT NULL,
+            klant_id INTEGER NOT NULL,
+            interval TEXT NOT NULL DEFAULT 'maandelijks',
+            volgende_datum TEXT NOT NULL,
+            actief INTEGER NOT NULL DEFAULT 1,
+            betalingstermijn INTEGER NOT NULL DEFAULT 30,
+            notities TEXT,
+            FOREIGN KEY (klant_id) REFERENCES klanten (id)
+        );
+        CREATE TABLE IF NOT EXISTS periodieke_regels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            periodiek_id INTEGER NOT NULL,
+            omschrijving TEXT NOT NULL,
+            aantal REAL NOT NULL DEFAULT 1,
+            eenheid TEXT NOT NULL DEFAULT 'st',
+            prijs_per_stuk REAL NOT NULL,
+            btw_percentage REAL NOT NULL DEFAULT 21,
+            FOREIGN KEY (periodiek_id) REFERENCES periodieke_facturen (id) ON DELETE CASCADE
+        );
+    """)
+
+    # Column migrations (safe to run multiple times)
+    for col, defn in [("telefoon", "TEXT"), ("betalingstermijn", "INTEGER")]:
+        try:
+            db.execute(f"ALTER TABLE klanten ADD COLUMN {col} {defn}")
+        except Exception:
+            pass
+    for col, defn in [
+        ("korting", "REAL NOT NULL DEFAULT 0"),
+        ("korting_type", "TEXT NOT NULL DEFAULT 'pct'"),
+        ("projectnummer", "TEXT"),
+        ("referentie", "TEXT"),
+        ("betalingstermijn", "INTEGER NOT NULL DEFAULT 30"),
+    ]:
+        try:
+            db.execute(f"ALTER TABLE facturen ADD COLUMN {col} {defn}")
+        except Exception:
+            pass
+    for col, defn in [("eenheid", "TEXT NOT NULL DEFAULT 'st'"),
+                      ("periode_van", "TEXT"), ("periode_tot", "TEXT")]:
+        try:
+            db.execute(f"ALTER TABLE factuurregels ADD COLUMN {col} {defn}")
+        except Exception:
+            pass
+    for col, defn in [("periode_van", "TEXT"), ("periode_tot", "TEXT")]:
+        try:
+            db.execute(f"ALTER TABLE periodieke_regels ADD COLUMN {col} {defn}")
+        except Exception:
+            pass
+
     db.commit()
+
+    # Seed settings from env vars on first run
+    if not db.execute("SELECT id FROM instellingen WHERE id=1").fetchone():
+        db.execute(
+            "INSERT INTO instellingen (id,bedrijfsnaam,kvk,btwnummer,iban,smtp_host,smtp_port,smtp_user,smtp_password,smtp_from,smtp_use_tls,app_base_url,mollie_key_test) VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (_ENV_NAAM, _ENV_KVK, _ENV_BTW, _ENV_IBAN, _ENV_SMTP_HOST, _ENV_SMTP_PORT,
+             _ENV_SMTP_USER, _ENV_SMTP_PASS, _ENV_SMTP_FROM, 1 if _ENV_SMTP_TLS else 0,
+             _ENV_BASE_URL, _ENV_MOLLIE),
+        )
+        db.commit()
     db.close()
+    _maak_default_template()
 
 
-# ---------- Helpers ----------
+# ─── Settings & context ───────────────────────────────────────────────────────
 
-def kwartaal_van_datum(d: date):
-    return (d.month - 1) // 3 + 1
+def get_settings():
+    if "settings" not in g:
+        row = get_db().execute("SELECT * FROM instellingen WHERE id=1").fetchone()
+        g.settings = dict(row) if row else {}
+    return g.settings
 
 
-def huidig_boekjaar_kwartalen(jaar):
-    return [f"{jaar}-Q{q}" for q in range(1, 5)]
+@app.context_processor
+def inject_globals():
+    try:
+        s = get_settings()
+    except Exception:
+        s = {}
+    try:
+        db = get_db()
+        fac_n = db.execute("SELECT COUNT(*) FROM facturen").fetchone()[0]
+        kla_n = db.execute("SELECT COUNT(*) FROM klanten").fetchone()[0]
+    except Exception:
+        fac_n = kla_n = 0
+    return {
+        "settings": s,
+        "light_mode": request.cookies.get("theme", "dark") == "light",
+        "huidig_jaar": datetime.now().year,
+        "fac_count": fac_n,
+        "kla_count": kla_n,
+        "vandaag": date.today().isoformat(),
+    }
 
 
-def factuur_totalen(regels):
-    subtotaal = 0.0
-    btw_totaal = 0.0
+# ─── Calculation helpers ──────────────────────────────────────────────────────
+
+def factuur_berekening(regels, korting=0.0, korting_type="pct"):
+    subtotaal = sum(r["aantal"] * r["prijs_per_stuk"] for r in regels)
+    korting = float(korting or 0)
+    if korting_type == "pct":
+        korting_bedrag = subtotaal * korting / 100
+    else:
+        korting_bedrag = min(korting, subtotaal)
+    netto = subtotaal - korting_bedrag
+    btw_per_tarief = {}
     for r in regels:
-        lijnbedrag = r["aantal"] * r["prijs_per_stuk"]
-        subtotaal += lijnbedrag
-        btw_totaal += lijnbedrag * (r["btw_percentage"] / 100)
-    return round(subtotaal, 2), round(btw_totaal, 2), round(subtotaal + btw_totaal, 2)
+        bedrag = r["aantal"] * r["prijs_per_stuk"]
+        ratio = bedrag / subtotaal if subtotaal > 0 else 0
+        net_r = bedrag - korting_bedrag * ratio
+        t = r["btw_percentage"]
+        btw_per_tarief[t] = btw_per_tarief.get(t, 0) + net_r * t / 100
+    btw_totaal = sum(btw_per_tarief.values())
+    return {
+        "subtotaal": round(subtotaal, 2),
+        "korting_bedrag": round(korting_bedrag, 2),
+        "netto": round(netto, 2),
+        "btw_per_tarief": {k: round(v, 2) for k, v in btw_per_tarief.items()},
+        "btw_totaal": round(btw_totaal, 2),
+        "totaal": round(netto + btw_totaal, 2),
+    }
 
 
-def smtp_geconfigureerd():
-    return bool(SMTP_HOST and SMTP_USER and SMTP_PASSWORD)
+def smtp_ok():
+    s = get_settings()
+    return bool(s.get("smtp_host") and s.get("smtp_user") and s.get("smtp_password"))
 
 
 def verstuur_email(naar, onderwerp, html_body):
-    if not smtp_geconfigureerd():
-        raise RuntimeError("SMTP is niet geconfigureerd. Vul SMTP_HOST/SMTP_USER/SMTP_PASSWORD in via .env.")
-
+    s = get_settings()
+    if not smtp_ok():
+        raise RuntimeError("SMTP niet geconfigureerd. Stel in via Instellingen.")
     msg = MIMEMultipart("alternative")
     msg["Subject"] = onderwerp
-    msg["From"] = SMTP_FROM
+    msg["From"] = s.get("smtp_from") or s["smtp_user"]
     msg["To"] = naar
     msg.attach(MIMEText(html_body, "html"))
+    with smtplib.SMTP(s["smtp_host"], int(s.get("smtp_port", 587)), timeout=20) as srv:
+        if s.get("smtp_use_tls", 1):
+            srv.starttls()
+        srv.login(s["smtp_user"], s["smtp_password"])
+        srv.sendmail(msg["From"], [naar], msg.as_string())
 
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as server:
-        if SMTP_USE_TLS:
-            server.starttls()
-        server.login(SMTP_USER, SMTP_PASSWORD)
-        server.sendmail(SMTP_FROM, [naar], msg.as_string())
+
+def _mollie_key():
+    s = get_settings()
+    mode = s.get("mollie_mode", "test")
+    key = s.get("mollie_key_live") if mode == "live" else s.get("mollie_key_test")
+    return key or _ENV_MOLLIE
 
 
 def maak_mollie_payment(factuur_id, totaal, factuurnummer):
-    """Maakt een Mollie payment aan en koppelt 'm aan de factuur. Geeft de checkout_url terug."""
-    if not MOLLIE_API_KEY:
-        raise RuntimeError("Geen MOLLIE_API_KEY ingesteld in .env.")
-    if not APP_BASE_URL:
-        raise RuntimeError(
-            "Geen APP_BASE_URL ingesteld in .env. Mollie heeft een publiek bereikbare URL nodig "
-            "voor de redirect en webhook (bv. via ngrok, Cloudflare Tunnel, of je hosting-domein)."
-        )
-
+    key = _mollie_key()
+    if not key:
+        raise RuntimeError("Geen Mollie API-sleutel ingesteld.")
+    s = get_settings()
+    base = (s.get("app_base_url") or _ENV_BASE_URL).rstrip("/")
+    if not base:
+        raise RuntimeError("Geen APP_BASE_URL ingesteld. Mollie heeft een publieke URL nodig.")
     from mollie.api.client import Client
-
-    mollie_client = Client()
-    mollie_client.set_api_key(MOLLIE_API_KEY)
-    payment = mollie_client.payments.create(
-        {
-            "amount": {"currency": "EUR", "value": f"{totaal:.2f}"},
-            "description": f"Factuur {factuurnummer}",
-            "redirectUrl": f"{APP_BASE_URL}{url_for('factuur_bekijken', factuur_id=factuur_id)}",
-            "webhookUrl": f"{APP_BASE_URL}{url_for('mollie_webhook')}",
-            "metadata": {"factuur_id": factuur_id},
-        }
-    )
+    mc = Client()
+    mc.set_api_key(key)
+    p = mc.payments.create({
+        "amount": {"currency": "EUR", "value": f"{totaal:.2f}"},
+        "description": f"Factuur {factuurnummer}",
+        "redirectUrl": f"{base}{url_for('factuur_bekijken', fid=factuur_id)}",
+        "webhookUrl": f"{base}{url_for('mollie_webhook')}",
+        "metadata": {"factuur_id": factuur_id},
+    })
     db = get_db()
-    db.execute(
-        "UPDATE facturen SET betaallink=?, mollie_payment_id=? WHERE id=?",
-        (payment.checkout_url, payment.id, factuur_id),
-    )
+    db.execute("UPDATE facturen SET betaallink=?, mollie_payment_id=? WHERE id=?",
+               (p.checkout_url, p.id, factuur_id))
     db.commit()
-    return payment.checkout_url
+    return p.checkout_url
 
 
 def volgend_factuurnummer(db):
-    jaar = datetime.now().year
-    row = db.execute(
-        "SELECT factuurnummer FROM facturen WHERE factuurnummer LIKE ? ORDER BY id DESC LIMIT 1",
-        (f"{jaar}-%",),
-    ).fetchone()
-    if row:
-        try:
-            volgnr = int(row["factuurnummer"].split("-")[-1]) + 1
-        except ValueError:
-            volgnr = 1
-    else:
-        volgnr = 1
-    return f"{jaar}-{volgnr:03d}"
+    row = db.execute("SELECT factuurprefix, factuurvolgend FROM instellingen WHERE id=1").fetchone()
+    prefix = (row["factuurprefix"] or "FAC") if row else "FAC"
+    volgnr = (row["factuurvolgend"] or 1) if row else 1
+    return f"{prefix}-{volgnr:04d}"
 
 
-# ---------- Dashboard ----------
+def bump_volgnummer(db):
+    db.execute("UPDATE instellingen SET factuurvolgend = factuurvolgend + 1 WHERE id=1")
+    db.commit()
+
+
+def volgend_periodiek_datum(d: date, interval: str) -> date:
+    if interval == "wekelijks":
+        return d + timedelta(weeks=1)
+    if interval == "maandelijks":
+        m = d.month % 12 + 1
+        y = d.year + (1 if d.month == 12 else 0)
+        return date(y, m, min(d.day, monthrange(y, m)[1]))
+    if interval == "kwartaal":
+        m = d.month + 3
+        y = d.year + (m - 1) // 12
+        m = (m - 1) % 12 + 1
+        return date(y, m, min(d.day, monthrange(y, m)[1]))
+    if interval == "jaarlijks":
+        y = d.year + 1
+        return date(y, d.month, min(d.day, monthrange(y, d.month)[1]))
+    return d
+
+
+def _reg_val(f, key):
+    return f[key] if key in f.keys() else None
+
+
+# ─── Word export ──────────────────────────────────────────────────────────────
+
+def genereer_word_factuur(factuur, regels, bek, s):
+    doc = DocxDoc()
+    sec = doc.sections[0]
+    sec.top_margin = sec.bottom_margin = sec.left_margin = sec.right_margin = Cm(2.5)
+
+    def p(text="", bold=False, size=11, align=WD_ALIGN_PARAGRAPH.LEFT, color=None):
+        para = doc.add_paragraph()
+        para.alignment = align
+        run = para.add_run(text)
+        run.bold = bold
+        run.font.size = Pt(size)
+        if color:
+            run.font.color.rgb = RGBColor(*color)
+        return para
+
+    p(s.get("bedrijfsnaam", ""), bold=True, size=16)
+    adres_parts = [s.get("adres", ""), f"{s.get('postcode','')} {s.get('stad','')}".strip()]
+    if s.get("kvk"):
+        adres_parts.append(f"KvK: {s['kvk']}")
+    if s.get("btwnummer"):
+        adres_parts.append(f"BTW: {s['btwnummer']}")
+    p("\n".join(filter(None, adres_parts)), size=10)
+
+    doc.add_paragraph()
+
+    h = p("FACTUUR", bold=True, size=22, align=WD_ALIGN_PARAGRAPH.RIGHT, color=(0xF0, 0xA5, 0x00))
+    details = [
+        f"Nr: {factuur['factuurnummer']}",
+        f"Datum: {factuur['factuurdatum']}",
+        f"Vervaldatum: {factuur['vervaldatum']}",
+    ]
+    if _reg_val(factuur, "projectnummer"):
+        details.append(f"Project: {factuur['projectnummer']}")
+    p("\n".join(details), size=10, align=WD_ALIGN_PARAGRAPH.RIGHT)
+
+    doc.add_paragraph("─" * 80)
+
+    p("Factureren aan:", bold=True)
+    klant_lines = [factuur["naam"]]
+    if _reg_val(factuur, "adres"):
+        klant_lines.append(factuur["adres"])
+    postcity = f"{_reg_val(factuur,'postcode') or ''} {_reg_val(factuur,'plaats') or ''}".strip()
+    if postcity:
+        klant_lines.append(postcity)
+    p("\n".join(klant_lines), size=11)
+    doc.add_paragraph()
+
+    tbl = doc.add_table(rows=1, cols=6)
+    tbl.style = "Table Grid"
+    hrow = tbl.rows[0]
+    for i, h in enumerate(["Omschrijving", "Aantal", "Eenheid", "Prijs excl.", "BTW%", "Totaal"]):
+        c = hrow.cells[i]
+        c.text = h
+        c.paragraphs[0].runs[0].bold = True
+        c.paragraphs[0].runs[0].font.size = Pt(9)
+
+    for r in regels:
+        row = tbl.add_row()
+        vals = [
+            r["omschrijving"],
+            str(r["aantal"]).rstrip("0").rstrip(".") if "." in str(r["aantal"]) else str(int(r["aantal"])),
+            r.get("eenheid", "st"),
+            f"€ {r['prijs_per_stuk']:.2f}",
+            f"{int(r['btw_percentage'])}%",
+            f"€ {r['aantal'] * r['prijs_per_stuk']:.2f}",
+        ]
+        for i, v in enumerate(vals):
+            row.cells[i].text = v
+            row.cells[i].paragraphs[0].runs[0].font.size = Pt(9)
+
+    doc.add_paragraph()
+
+    def totaalrij(label, bedrag, bold=False, prefix=""):
+        para = doc.add_paragraph()
+        para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        run = para.add_run(f"{label}: {prefix}€ {abs(bedrag):.2f}")
+        run.bold = bold
+        run.font.size = Pt(11 if bold else 10)
+
+    totaalrij("Subtotaal excl. BTW", bek["subtotaal"])
+    if bek["korting_bedrag"] > 0:
+        totaalrij("Korting", bek["korting_bedrag"], prefix="-")
+    for tarief, btw_bedrag in sorted(bek["btw_per_tarief"].items()):
+        totaalrij(f"BTW {int(tarief)}%", btw_bedrag)
+    totaalrij("TOTAAL INCL. BTW", bek["totaal"], bold=True)
+
+    if _reg_val(factuur, "notities"):
+        doc.add_paragraph()
+        p("Notities:", bold=True)
+        doc.add_paragraph(factuur["notities"])
+
+    doc.add_paragraph()
+    footer = " | ".join(filter(None, [
+        f"IBAN: {s['iban']}" if s.get("iban") else None,
+        f"BTW-nr: {s['btwnummer']}" if s.get("btwnummer") else None,
+        f"KvK: {s['kvk']}" if s.get("kvk") else None,
+    ]))
+    if footer:
+        para = doc.add_paragraph(footer)
+        para.runs[0].font.size = Pt(9)
+
+    voetnoot = s.get("juridisch_voetnoot") or "Bij overschrijding van de betalingstermijn bent u van rechtswege in verzuim en is de wettelijke handelsrente (art. 6:119a BW) verschuldigd."
+    vn = doc.add_paragraph(voetnoot)
+    vn.runs[0].font.size = Pt(8)
+    vn.runs[0].font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+
+    return doc
+
+
+# ─── Word via docxtpl ────────────────────────────────────────────────────────
+
+def _maak_default_template():
+    """Create factuur_template.docx with {{placeholders}} if it doesn't exist yet."""
+    if not HAS_DOCX or os.path.exists(TEMPLATE_PAD):
+        return
+    doc = DocxDoc()
+    sec = doc.sections[0]
+    sec.top_margin = sec.bottom_margin = Cm(2.5)
+    sec.left_margin = sec.right_margin = Cm(2.5)
+
+    def para(text, bold=False, size=11, align=WD_ALIGN_PARAGRAPH.LEFT, color=None, space_after=0):
+        p = doc.add_paragraph()
+        p.alignment = align
+        p.paragraph_format.space_after = Pt(space_after)
+        run = p.add_run(text)
+        run.bold = bold
+        run.font.size = Pt(size)
+        if color:
+            run.font.color.rgb = RGBColor(*color)
+        return p
+
+    # Bedrijfsblok
+    para("{{bedrijfsnaam}}", bold=True, size=16, space_after=2)
+    para("{{bedrijf_adres}}", size=10, space_after=0)
+    para("{{bedrijf_postcode_stad}}", size=10, space_after=2)
+    para("KvK: {{kvk}}  |  BTW: {{btwnummer}}", size=9, space_after=4)
+
+    # Factuur-header rechts
+    para("FACTUUR", bold=True, size=24, align=WD_ALIGN_PARAGRAPH.RIGHT, color=(0xF0, 0xA5, 0x00), space_after=2)
+    para("Nr: {{factuurnummer}}", size=11, align=WD_ALIGN_PARAGRAPH.RIGHT, space_after=1)
+    para("Datum: {{factuurdatum}}", size=10, align=WD_ALIGN_PARAGRAPH.RIGHT, space_after=1)
+    para("Vervaldatum: {{vervaldatum}}", size=10, align=WD_ALIGN_PARAGRAPH.RIGHT, space_after=1)
+    para("{% if projectnummer %}Project: {{projectnummer}}{% endif %}", size=10, align=WD_ALIGN_PARAGRAPH.RIGHT, space_after=6)
+
+    # Scheidingslijn
+    para("─" * 90, size=8, space_after=4)
+
+    # Klantblok
+    para("Factureren aan:", bold=True, size=10, space_after=2)
+    para("{{klant_naam}}", bold=True, size=12, space_after=1)
+    para("{{klant_adres}}", size=10, space_after=1)
+    para("{{klant_postcode_stad}}", size=10, space_after=1)
+    para("{% if klant_btw_nummer %}BTW: {{klant_btw_nummer}}{% endif %}", size=9, space_after=8)
+
+    # Regelstabel
+    tbl = doc.add_table(rows=3, cols=6)
+    tbl.style = "Table Grid"
+
+    # Header row
+    hdrs = ["Omschrijving", "Aantal", "Eenheid", "Prijs excl.", "BTW%", "Totaal"]
+    for i, h in enumerate(hdrs):
+        c = tbl.rows[0].cells[i]
+        c.text = h
+        run = c.paragraphs[0].runs[0]
+        run.bold = True
+        run.font.size = Pt(9)
+        run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        from docx.oxml.ns import qn
+        from docx.oxml import OxmlElement
+        tc_pr = c._tc.get_or_add_tcPr()
+        shd = OxmlElement('w:shd')
+        shd.set(qn('w:fill'), '111111')
+        shd.set(qn('w:color'), 'auto')
+        shd.set(qn('w:val'), 'clear')
+        tc_pr.append(shd)
+
+    # Template row (docxtpl row loop — {%tr for r in regels %})
+    loop_row = tbl.rows[1]
+    vals = [
+        "{%tr for r in regels %}{{r.omschrijving}}",
+        "{{r.aantal}}",
+        "{{r.eenheid}}",
+        "{{r.prijs}}",
+        "{{r.btw_pct}}%",
+        "{{r.totaal}}",
+    ]
+    for i, v in enumerate(vals):
+        loop_row.cells[i].text = v
+        loop_row.cells[i].paragraphs[0].runs[0].font.size = Pt(9)
+
+    # End-loop row
+    end_row = tbl.rows[2]
+    end_row.cells[0].text = "{%tr endfor %}"
+    for i in range(1, 6):
+        end_row.cells[i].text = ""
+    for cell in end_row.cells:
+        cell.paragraphs[0].runs[0].font.size = Pt(1)
+
+    doc.add_paragraph()
+
+    # Totaalblok
+    tot_tbl = doc.add_table(rows=4, cols=2)
+    tot_tbl.style = "Table Grid"
+
+    def tot_rij(row, label, waarde, bold=False):
+        for i, txt in enumerate([label, waarde]):
+            c = tot_tbl.rows[row].cells[i]
+            c.text = txt
+            run = c.paragraphs[0].runs[0]
+            run.bold = bold
+            run.font.size = Pt(10 if not bold else 12)
+            c.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT if i == 1 else WD_ALIGN_PARAGRAPH.LEFT
+
+    tot_rij(0, "Subtotaal excl. BTW", "€ {{subtotaal}}")
+    tot_rij(1, "{%tr for b in btw_regels %}BTW {{b.tarief}}%", "€ {{b.bedrag}}")
+    tot_rij(2, "{%tr endfor %}", "")
+    tot_rij(3, "TOTAAL INCL. BTW", "€ {{totaal}}", bold=True)
+
+    doc.add_paragraph()
+
+    # Notities (conditioneel)
+    para("{% if has_notities %}Notities: {{notities}}{% endif %}", size=10, space_after=8)
+
+    # Betaalgegevens
+    para("─" * 90, size=8, space_after=4)
+    para("{{betaalgegevens}}", size=9, space_after=2)
+    para("{{voetnoot}}", size=8, color=(0x88, 0x88, 0x88), space_after=0)
+
+    doc.save(TEMPLATE_PAD)
+
+
+def genereer_word_via_template(factuur, regels, bek, s):
+    """Fill factuur_template.docx with invoice data via docxtpl."""
+    tpl = DocxTemplate(TEMPLATE_PAD)
+    regels_ctx = []
+    for r in regels:
+        bedrag = r["aantal"] * r["prijs_per_stuk"]
+        aantal_str = str(r["aantal"])
+        pv = _reg_val(r, "periode_van") or ""
+        pt = _reg_val(r, "periode_tot") or ""
+        periode = f"{pv} t/m {pt}" if pv and pt else (pv or pt or "")
+        regels_ctx.append({
+            "omschrijving": r["omschrijving"],
+            "aantal": aantal_str.rstrip("0").rstrip(".") if "." in aantal_str else str(int(r["aantal"])),
+            "eenheid": (_reg_val(r, "eenheid") or "st"),
+            "prijs": f"{r['prijs_per_stuk']:.2f}",
+            "btw_pct": int(r["btw_percentage"]),
+            "totaal": f"{bedrag:.2f}",
+            "periode": periode,
+            "heeft_periode": bool(periode),
+        })
+    btw_regels = [
+        {"tarief": int(t), "bedrag": f"{b:.2f}"}
+        for t, b in sorted(bek["btw_per_tarief"].items())
+        if b > 0.001
+    ]
+    betaalinfo = " | ".join(filter(None, [
+        f"IBAN: {s['iban']}" if s.get("iban") else None,
+        f"BTW-nr: {s['btwnummer']}" if s.get("btwnummer") else None,
+        f"KvK: {s['kvk']}" if s.get("kvk") else None,
+    ]))
+    ctx = {
+        "bedrijfsnaam": s.get("bedrijfsnaam", ""),
+        "bedrijf_adres": s.get("adres", ""),
+        "bedrijf_postcode_stad": f"{s.get('postcode','')} {s.get('stad','')}".strip(),
+        "kvk": s.get("kvk", ""),
+        "btwnummer": s.get("btwnummer", ""),
+        "iban": s.get("iban", ""),
+        "factuurnummer": factuur["factuurnummer"],
+        "factuurdatum": factuur["factuurdatum"],
+        "vervaldatum": factuur["vervaldatum"],
+        "projectnummer": _reg_val(factuur, "projectnummer") or "",
+        "referentie": _reg_val(factuur, "referentie") or "",
+        "klant_naam": factuur["naam"],
+        "klant_adres": _reg_val(factuur, "adres") or "",
+        "klant_postcode_stad": f"{_reg_val(factuur,'postcode') or ''} {_reg_val(factuur,'plaats') or ''}".strip(),
+        "klant_btw_nummer": _reg_val(factuur, "btw_nummer") or "",
+        "regels": regels_ctx,
+        "subtotaal": f"{bek['subtotaal']:.2f}",
+        "korting_bedrag": f"{bek['korting_bedrag']:.2f}",
+        "has_korting": bek["korting_bedrag"] > 0,
+        "btw_regels": btw_regels,
+        "btw_totaal": f"{bek['btw_totaal']:.2f}",
+        "totaal": f"{bek['totaal']:.2f}",
+        "notities": _reg_val(factuur, "notities") or "",
+        "has_notities": bool(_reg_val(factuur, "notities")),
+        "betaalgegevens": betaalinfo,
+        "voetnoot": s.get("juridisch_voetnoot") or "Bij overschrijding van de betalingstermijn is de wettelijke handelsrente (art. 6:119a BW) verschuldigd.",
+    }
+    tpl.render(ctx)
+    return tpl
+
+
+# ─── Thema ────────────────────────────────────────────────────────────────────
+
+@app.route("/thema", methods=["POST"])
+def thema_toggle():
+    current = request.cookies.get("theme", "dark")
+    resp = make_response(redirect(request.referrer or url_for("dashboard")))
+    resp.set_cookie("theme", "light" if current == "dark" else "dark", max_age=31536000)
+    return resp
+
+
+# ─── Dashboard ────────────────────────────────────────────────────────────────
 
 @app.route("/")
 def dashboard():
     db = get_db()
     jaar = datetime.now().year
-
-    open_facturen = db.execute(
-        "SELECT COUNT(*) AS n, COALESCE(SUM( (SELECT SUM(aantal*prijs_per_stuk*(1+btw_percentage/100.0)) FROM factuurregels WHERE factuur_id = facturen.id) ),0) AS bedrag "
-        "FROM facturen WHERE status = 'open'"
+    open_f = db.execute(
+        "SELECT COUNT(*) AS n, COALESCE(SUM((SELECT SUM(fr.aantal*fr.prijs_per_stuk*(1+fr.btw_percentage/100.0)) FROM factuurregels fr WHERE fr.factuur_id=facturen.id)),0) AS bedrag FROM facturen WHERE status IN ('open','verzonden')"
     ).fetchone()
-
-    vervallen_facturen = db.execute(
-        "SELECT COUNT(*) AS n FROM facturen WHERE status='open' AND vervaldatum < ?",
+    vervallen = db.execute(
+        "SELECT COUNT(*) AS n FROM facturen WHERE status IN ('open','verzonden') AND vervaldatum < ?",
         (date.today().isoformat(),),
     ).fetchone()
-
-    omzet_dit_jaar = db.execute(
-        "SELECT COALESCE(SUM(fr.aantal*fr.prijs_per_stuk),0) AS totaal FROM factuurregels fr "
-        "JOIN facturen f ON f.id = fr.factuur_id WHERE f.factuurdatum LIKE ? AND f.status != 'concept'",
+    omzet = db.execute(
+        "SELECT COALESCE(SUM(fr.aantal*fr.prijs_per_stuk),0) AS t FROM factuurregels fr JOIN facturen f ON f.id=fr.factuur_id WHERE f.factuurdatum LIKE ? AND f.status != 'concept'",
         (f"{jaar}-%",),
-    ).fetchone()["totaal"]
-
-    kosten_dit_jaar = db.execute(
-        "SELECT COALESCE(SUM(bedrag_excl_btw * (zakelijk_percentage/100.0)),0) AS totaal FROM uitgaven WHERE datum LIKE ?",
+    ).fetchone()["t"]
+    kosten = db.execute(
+        "SELECT COALESCE(SUM(bedrag_excl_btw*(zakelijk_percentage/100.0)),0) AS t FROM uitgaven WHERE datum LIKE ?",
         (f"{jaar}-%",),
-    ).fetchone()["totaal"]
-
-    recente_facturen = db.execute(
-        "SELECT f.*, k.naam AS klant_naam FROM facturen f JOIN klanten k ON k.id = f.klant_id "
-        "ORDER BY f.id DESC LIMIT 5"
+    ).fetchone()["t"]
+    recente = db.execute(
+        "SELECT f.*, k.naam AS klant_naam FROM facturen f JOIN klanten k ON k.id=f.klant_id ORDER BY f.id DESC LIMIT 8"
     ).fetchall()
-
-    return render_template(
-        "dashboard.html",
-        open_facturen=open_facturen,
-        vervallen_facturen=vervallen_facturen,
-        omzet_dit_jaar=round(omzet_dit_jaar, 2),
-        kosten_dit_jaar=round(kosten_dit_jaar, 2),
-        winst_dit_jaar=round(omzet_dit_jaar - kosten_dit_jaar, 2),
-        recente_facturen=recente_facturen,
-        jaar=jaar,
-        bedrijfsnaam=BEDRIJFSNAAM,
-    )
+    totalen = {}
+    for f in recente:
+        regels = db.execute("SELECT * FROM factuurregels WHERE factuur_id=?", (f["id"],)).fetchall()
+        totalen[f["id"]] = factuur_berekening(regels, _reg_val(f, "korting") or 0, _reg_val(f, "korting_type") or "pct")["totaal"]
+    return render_template("dashboard.html", open_f=open_f, vervallen=vervallen,
+                           omzet=round(omzet, 2), kosten=round(kosten, 2),
+                           winst=round(omzet - kosten, 2), recente=recente, totalen=totalen, jaar=jaar)
 
 
-# ---------- Klanten ----------
+# ─── Klanten ──────────────────────────────────────────────────────────────────
 
 @app.route("/klanten")
 def klanten():
     db = get_db()
-    alle_klanten = db.execute("SELECT * FROM klanten ORDER BY naam").fetchall()
-    return render_template("klanten.html", klanten=alle_klanten)
+    alle = db.execute("SELECT * FROM klanten ORDER BY naam").fetchall()
+    counts = {k["id"]: db.execute("SELECT COUNT(*) FROM facturen WHERE klant_id=?", (k["id"],)).fetchone()[0] for k in alle}
+    return render_template("klanten.html", klanten=alle, counts=counts)
 
 
 @app.route("/klanten/nieuw", methods=["GET", "POST"])
 def klant_nieuw():
     if request.method == "POST":
         db = get_db()
+        bt = request.form.get("betalingstermijn")
         db.execute(
-            "INSERT INTO klanten (naam, contactpersoon, email, adres, postcode, plaats, land, kvk, btw_nummer) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
-            (
-                request.form["naam"],
-                request.form.get("contactpersoon"),
-                request.form.get("email"),
-                request.form.get("adres"),
-                request.form.get("postcode"),
-                request.form.get("plaats"),
-                request.form.get("land", "Nederland"),
-                request.form.get("kvk"),
-                request.form.get("btw_nummer"),
-            ),
+            "INSERT INTO klanten (naam,contactpersoon,email,telefoon,adres,postcode,plaats,land,kvk,btw_nummer,betalingstermijn) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (request.form["naam"], request.form.get("contactpersoon"), request.form.get("email"),
+             request.form.get("telefoon"), request.form.get("adres"), request.form.get("postcode"),
+             request.form.get("plaats"), request.form.get("land", "Nederland"),
+             request.form.get("kvk"), request.form.get("btw_nummer"),
+             int(bt) if bt and bt.strip() else None),
         )
         db.commit()
         flash("Klant toegevoegd.", "success")
@@ -301,265 +759,344 @@ def klant_nieuw():
     return render_template("klant_form.html", klant=None)
 
 
-@app.route("/klanten/<int:klant_id>/bewerken", methods=["GET", "POST"])
-def klant_bewerken(klant_id):
+@app.route("/klanten/<int:kid>/bewerken", methods=["GET", "POST"])
+def klant_bewerken(kid):
     db = get_db()
     if request.method == "POST":
+        bt = request.form.get("betalingstermijn")
         db.execute(
-            "UPDATE klanten SET naam=?, contactpersoon=?, email=?, adres=?, postcode=?, plaats=?, land=?, kvk=?, btw_nummer=? WHERE id=?",
-            (
-                request.form["naam"],
-                request.form.get("contactpersoon"),
-                request.form.get("email"),
-                request.form.get("adres"),
-                request.form.get("postcode"),
-                request.form.get("plaats"),
-                request.form.get("land", "Nederland"),
-                request.form.get("kvk"),
-                request.form.get("btw_nummer"),
-                klant_id,
-            ),
+            "UPDATE klanten SET naam=?,contactpersoon=?,email=?,telefoon=?,adres=?,postcode=?,plaats=?,land=?,kvk=?,btw_nummer=?,betalingstermijn=? WHERE id=?",
+            (request.form["naam"], request.form.get("contactpersoon"), request.form.get("email"),
+             request.form.get("telefoon"), request.form.get("adres"), request.form.get("postcode"),
+             request.form.get("plaats"), request.form.get("land", "Nederland"),
+             request.form.get("kvk"), request.form.get("btw_nummer"),
+             int(bt) if bt and bt.strip() else None, kid),
         )
         db.commit()
         flash("Klant bijgewerkt.", "success")
         return redirect(url_for("klanten"))
-    klant = db.execute("SELECT * FROM klanten WHERE id=?", (klant_id,)).fetchone()
-    return render_template("klant_form.html", klant=klant)
+    return render_template("klant_form.html", klant=db.execute("SELECT * FROM klanten WHERE id=?", (kid,)).fetchone())
 
 
-@app.route("/klanten/<int:klant_id>/verwijderen", methods=["POST"])
-def klant_verwijderen(klant_id):
+@app.route("/klanten/<int:kid>/verwijderen", methods=["POST"])
+def klant_verwijderen(kid):
     db = get_db()
-    db.execute("DELETE FROM klanten WHERE id=?", (klant_id,))
+    db.execute("DELETE FROM klanten WHERE id=?", (kid,))
     db.commit()
     flash("Klant verwijderd.", "success")
     return redirect(url_for("klanten"))
 
 
-# ---------- Facturen ----------
+# ─── Facturen ─────────────────────────────────────────────────────────────────
 
 @app.route("/facturen")
 def facturen():
     db = get_db()
-    alle_facturen = db.execute(
-        "SELECT f.*, k.naam AS klant_naam FROM facturen f JOIN klanten k ON k.id = f.klant_id ORDER BY f.id DESC"
-    ).fetchall()
+    alle = db.execute("SELECT f.*, k.naam AS klant_naam FROM facturen f JOIN klanten k ON k.id=f.klant_id ORDER BY f.id DESC").fetchall()
     resultaten = []
-    for f in alle_facturen:
-        regels = db.execute(
-            "SELECT * FROM factuurregels WHERE factuur_id=?", (f["id"],)
-        ).fetchall()
-        _, _, totaal = factuur_totalen(regels)
-        resultaten.append({**dict(f), "totaal": totaal})
+    for f in alle:
+        regels = db.execute("SELECT * FROM factuurregels WHERE factuur_id=?", (f["id"],)).fetchall()
+        bek = factuur_berekening(regels, _reg_val(f, "korting") or 0, _reg_val(f, "korting_type") or "pct")
+        resultaten.append({**dict(f), "totaal": bek["totaal"]})
     return render_template("facturen.html", facturen=resultaten)
+
+
+def _sla_factuur_op(db, factuur_id=None):
+    velden = (
+        request.form["klant_id"], request.form["factuurdatum"], request.form["vervaldatum"],
+        request.form.get("status", "concept"), request.form.get("notities"),
+        float(request.form.get("korting", 0)), request.form.get("korting_type", "pct"),
+        request.form.get("projectnummer"), request.form.get("referentie"),
+        int(request.form.get("betalingstermijn", 30)),
+    )
+    if factuur_id:
+        db.execute(
+            "UPDATE facturen SET klant_id=?,factuurdatum=?,vervaldatum=?,status=?,notities=?,korting=?,korting_type=?,projectnummer=?,referentie=?,betalingstermijn=? WHERE id=?",
+            (*velden, factuur_id),
+        )
+        db.execute("DELETE FROM factuurregels WHERE factuur_id=?", (factuur_id,))
+    else:
+        factuurnummer = request.form.get("factuurnummer") or volgend_factuurnummer(db)
+        cur = db.execute(
+            "INSERT INTO facturen (factuurnummer,klant_id,factuurdatum,vervaldatum,status,notities,korting,korting_type,projectnummer,referentie,betalingstermijn) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (factuurnummer, *velden),
+        )
+        factuur_id = cur.lastrowid
+        bump_volgnummer(db)
+
+    omschr_list = request.form.getlist("omschrijving")
+    periode_van_list = request.form.getlist("periode_van")
+    periode_tot_list = request.form.getlist("periode_tot")
+    for i, (omschr, aantal, prijs, btw, eenheid) in enumerate(zip(
+        omschr_list, request.form.getlist("aantal"),
+        request.form.getlist("prijs_per_stuk"), request.form.getlist("btw_percentage"),
+        request.form.getlist("eenheid"),
+    )):
+        if omschr.strip():
+            pv = periode_van_list[i] if i < len(periode_van_list) else ""
+            pt = periode_tot_list[i] if i < len(periode_tot_list) else ""
+            db.execute(
+                "INSERT INTO factuurregels (factuur_id,omschrijving,aantal,eenheid,prijs_per_stuk,btw_percentage,periode_van,periode_tot) VALUES (?,?,?,?,?,?,?,?)",
+                (factuur_id, omschr, float(aantal or 1), eenheid or "st", float(prijs or 0), float(btw or 21),
+                 pv or None, pt or None),
+            )
+    db.commit()
+    return factuur_id
 
 
 @app.route("/facturen/nieuw", methods=["GET", "POST"])
 def factuur_nieuw():
     db = get_db()
     if request.method == "POST":
-        factuurnummer = volgend_factuurnummer(db)
-        cur = db.execute(
-            "INSERT INTO facturen (factuurnummer, klant_id, factuurdatum, vervaldatum, status, notities) "
-            "VALUES (?,?,?,?,?,?)",
-            (
-                factuurnummer,
-                request.form["klant_id"],
-                request.form["factuurdatum"],
-                request.form["vervaldatum"],
-                "open",
-                request.form.get("notities"),
-            ),
-        )
-        factuur_id = cur.lastrowid
-
-        omschrijvingen = request.form.getlist("omschrijving")
-        aantallen = request.form.getlist("aantal")
-        prijzen = request.form.getlist("prijs_per_stuk")
-        btws = request.form.getlist("btw_percentage")
-
-        for omschr, aantal, prijs, btw in zip(omschrijvingen, aantallen, prijzen, btws):
-            if omschr.strip():
-                db.execute(
-                    "INSERT INTO factuurregels (factuur_id, omschrijving, aantal, prijs_per_stuk, btw_percentage) "
-                    "VALUES (?,?,?,?,?)",
-                    (factuur_id, omschr, float(aantal), float(prijs), float(btw)),
-                )
-        db.commit()
-        flash(f"Factuur {factuurnummer} aangemaakt.", "success")
-        return redirect(url_for("factuur_bekijken", factuur_id=factuur_id))
-
-    klanten_lijst = db.execute("SELECT * FROM klanten ORDER BY naam").fetchall()
-    voorgesteld_nummer = volgend_factuurnummer(db)
-    return render_template(
-        "factuur_form.html",
-        klanten=klanten_lijst,
-        voorgesteld_nummer=voorgesteld_nummer,
-        vandaag=date.today().isoformat(),
-    )
+        fid = _sla_factuur_op(db)
+        flash("Factuur aangemaakt.", "success")
+        return redirect(url_for("factuur_bekijken", fid=fid))
+    s = get_settings()
+    return render_template("factuur_form.html",
+                           klanten=db.execute("SELECT id,naam,betalingstermijn,adres,postcode,plaats,btw_nummer FROM klanten ORDER BY naam").fetchall(),
+                           producten=db.execute("SELECT * FROM producten ORDER BY naam").fetchall(),
+                           factuur=None, regels=[], voorgesteld_nummer=volgend_factuurnummer(db),
+                           vandaag=date.today().isoformat(),
+                           betalingstermijn=s.get("betalingstermijn", 30),
+                           standaard_termijn=s.get("betalingstermijn", 30))
 
 
-@app.route("/facturen/<int:factuur_id>")
-def factuur_bekijken(factuur_id):
+@app.route("/facturen/<int:fid>/bewerken", methods=["GET", "POST"])
+def factuur_bewerken(fid):
+    db = get_db()
+    if request.method == "POST":
+        _sla_factuur_op(db, factuur_id=fid)
+        flash("Factuur bijgewerkt.", "success")
+        return redirect(url_for("factuur_bekijken", fid=fid))
+    factuur = db.execute("SELECT * FROM facturen WHERE id=?", (fid,)).fetchone()
+    regels = db.execute("SELECT * FROM factuurregels WHERE factuur_id=?", (fid,)).fetchall()
+    s = get_settings()
+    return render_template("factuur_form.html",
+                           klanten=db.execute("SELECT id,naam,betalingstermijn,adres,postcode,plaats,btw_nummer FROM klanten ORDER BY naam").fetchall(),
+                           producten=db.execute("SELECT * FROM producten ORDER BY naam").fetchall(),
+                           factuur=factuur, regels=regels,
+                           vandaag=date.today().isoformat(),
+                           betalingstermijn=_reg_val(factuur, "betalingstermijn") or 30,
+                           standaard_termijn=s.get("betalingstermijn", 30),
+                           voorgesteld_nummer=factuur["factuurnummer"])
+
+
+@app.route("/facturen/<int:fid>")
+def factuur_bekijken(fid):
     db = get_db()
     factuur = db.execute(
-        "SELECT f.*, k.* , f.id as factuur_id FROM facturen f JOIN klanten k ON k.id = f.klant_id WHERE f.id=?",
-        (factuur_id,),
+        "SELECT f.*, k.naam, k.adres, k.postcode, k.plaats, k.btw_nummer, k.email AS klant_email, f.id AS factuur_id FROM facturen f JOIN klanten k ON k.id=f.klant_id WHERE f.id=?",
+        (fid,),
     ).fetchone()
-    regels = db.execute(
-        "SELECT * FROM factuurregels WHERE factuur_id=?", (factuur_id,)
-    ).fetchall()
-    subtotaal, btw_totaal, totaal = factuur_totalen(regels)
-    return render_template(
-        "factuur_view.html",
-        factuur=factuur,
-        regels=regels,
-        subtotaal=subtotaal,
-        btw_totaal=btw_totaal,
-        totaal=totaal,
-        bedrijfsnaam=BEDRIJFSNAAM,
-        kvk_nummer=KVK_NUMMER,
-        btw_nummer=BTW_NUMMER,
-        iban=IBAN,
-        mollie_actief=bool(MOLLIE_API_KEY and APP_BASE_URL),
-        smtp_actief=smtp_geconfigureerd(),
-    )
+    regels = db.execute("SELECT * FROM factuurregels WHERE factuur_id=?", (fid,)).fetchall()
+    bek = factuur_berekening(regels, _reg_val(factuur, "korting") or 0, _reg_val(factuur, "korting_type") or "pct")
+    return render_template("factuur_view.html", factuur=factuur, regels=regels, bek=bek,
+                           mollie_actief=bool(_mollie_key()),
+                           smtp_actief=smtp_ok(), has_docx=HAS_DOCX)
 
 
-@app.route("/facturen/<int:factuur_id>/status", methods=["POST"])
-def factuur_status(factuur_id):
+@app.route("/facturen/<int:fid>/status", methods=["POST"])
+def factuur_status(fid):
     db = get_db()
-    db.execute(
-        "UPDATE facturen SET status=? WHERE id=?", (request.form["status"], factuur_id)
-    )
+    db.execute("UPDATE facturen SET status=? WHERE id=?", (request.form["status"], fid))
     db.commit()
     flash("Status bijgewerkt.", "success")
-    return redirect(url_for("factuur_bekijken", factuur_id=factuur_id))
+    return redirect(url_for("factuur_bekijken", fid=fid))
 
 
-@app.route("/facturen/<int:factuur_id>/mollie-betaallink", methods=["POST"])
-def factuur_mollie_betaallink(factuur_id):
+@app.route("/facturen/<int:fid>/dupliceren", methods=["POST"])
+def factuur_dupliceren(fid):
     db = get_db()
-    regels = db.execute("SELECT * FROM factuurregels WHERE factuur_id=?", (factuur_id,)).fetchall()
-    factuur = db.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
-    _, _, totaal = factuur_totalen(regels)
+    orig = db.execute("SELECT * FROM facturen WHERE id=?", (fid,)).fetchone()
+    regels = db.execute("SELECT * FROM factuurregels WHERE factuur_id=?", (fid,)).fetchall()
+    bt = _reg_val(orig, "betalingstermijn") or 30
+    nr = volgend_factuurnummer(db)
+    cur = db.execute(
+        "INSERT INTO facturen (factuurnummer,klant_id,factuurdatum,vervaldatum,status,notities,korting,korting_type,projectnummer,referentie,betalingstermijn) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (nr, orig["klant_id"], date.today().isoformat(),
+         (date.today() + timedelta(days=bt)).isoformat(), "concept",
+         orig["notities"], _reg_val(orig, "korting") or 0,
+         _reg_val(orig, "korting_type") or "pct",
+         _reg_val(orig, "projectnummer"), _reg_val(orig, "referentie"), bt),
+    )
+    nid = cur.lastrowid
+    for r in regels:
+        db.execute(
+            "INSERT INTO factuurregels (factuur_id,omschrijving,aantal,eenheid,prijs_per_stuk,btw_percentage) VALUES (?,?,?,?,?,?)",
+            (nid, r["omschrijving"], r["aantal"], r.get("eenheid", "st"), r["prijs_per_stuk"], r["btw_percentage"]),
+        )
+    bump_volgnummer(db)
+    db.commit()
+    flash(f"Gedupliceerd als {nr}.", "success")
+    return redirect(url_for("factuur_bewerken", fid=nid))
 
+
+@app.route("/facturen/<int:fid>/word")
+def factuur_word(fid):
+    if not HAS_DOCX and not HAS_DOCXTPL:
+        flash("python-docx niet geïnstalleerd.", "danger")
+        return redirect(url_for("factuur_bekijken", fid=fid))
+    db = get_db()
+    factuur = db.execute(
+        "SELECT f.*, k.naam, k.adres, k.postcode, k.plaats, k.btw_nummer FROM facturen f JOIN klanten k ON k.id=f.klant_id WHERE f.id=?",
+        (fid,),
+    ).fetchone()
+    regels = db.execute("SELECT * FROM factuurregels WHERE factuur_id=?", (fid,)).fetchall()
+    bek = factuur_berekening(regels, _reg_val(factuur, "korting") or 0, _reg_val(factuur, "korting_type") or "pct")
+    buf = io.BytesIO()
+    if HAS_DOCXTPL and os.path.exists(TEMPLATE_PAD):
+        tpl = genereer_word_via_template(factuur, regels, bek, get_settings())
+        tpl.save(buf)
+    else:
+        doc = genereer_word_factuur(factuur, regels, bek, get_settings())
+        doc.save(buf)
+    buf.seek(0)
+    return send_file(buf, as_attachment=True,
+                     download_name=f"factuur_{factuur['factuurnummer']}.docx",
+                     mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+
+@app.route("/facturen/<int:fid>/mollie-betaallink", methods=["POST"])
+def factuur_mollie_betaallink(fid):
+    db = get_db()
+    regels = db.execute("SELECT * FROM factuurregels WHERE factuur_id=?", (fid,)).fetchall()
+    factuur = db.execute("SELECT * FROM facturen WHERE id=?", (fid,)).fetchone()
+    bek = factuur_berekening(regels, _reg_val(factuur, "korting") or 0, _reg_val(factuur, "korting_type") or "pct")
     try:
-        maak_mollie_payment(factuur_id, totaal, factuur["factuurnummer"])
+        maak_mollie_payment(fid, bek["totaal"], factuur["factuurnummer"])
         flash("Mollie betaallink aangemaakt.", "success")
     except Exception as e:
         flash(f"Mollie-fout: {e}", "danger")
+    return redirect(url_for("factuur_bekijken", fid=fid))
 
-    return redirect(url_for("factuur_bekijken", factuur_id=factuur_id))
 
-
-@app.route("/facturen/<int:factuur_id>/versturen", methods=["POST"])
-def factuur_versturen(factuur_id):
-    """Verstuurt de factuur per e-mail naar de klant, met (indien geconfigureerd) een Mollie-betaallink."""
+@app.route("/facturen/<int:fid>/versturen", methods=["POST"])
+def factuur_versturen(fid):
     db = get_db()
     factuur = db.execute(
-        "SELECT f.*, k.naam AS klant_naam, k.email AS klant_email FROM facturen f "
-        "JOIN klanten k ON k.id = f.klant_id WHERE f.id=?",
-        (factuur_id,),
+        "SELECT f.*, k.naam AS klant_naam, k.email AS klant_email FROM facturen f JOIN klanten k ON k.id=f.klant_id WHERE f.id=?",
+        (fid,),
     ).fetchone()
-    regels = db.execute("SELECT * FROM factuurregels WHERE factuur_id=?", (factuur_id,)).fetchall()
-    subtotaal, btw_totaal, totaal = factuur_totalen(regels)
-
+    regels = db.execute("SELECT * FROM factuurregels WHERE factuur_id=?", (fid,)).fetchall()
+    bek = factuur_berekening(regels, _reg_val(factuur, "korting") or 0, _reg_val(factuur, "korting_type") or "pct")
+    s = get_settings()
     if not factuur["klant_email"]:
-        flash("Deze klant heeft geen e-mailadres. Vul dit eerst aan bij de klantgegevens.", "danger")
-        return redirect(url_for("factuur_bekijken", factuur_id=factuur_id))
-
+        flash("Klant heeft geen e-mailadres.", "danger")
+        return redirect(url_for("factuur_bekijken", fid=fid))
     betaallink = factuur["betaallink"]
-    if not betaallink and MOLLIE_API_KEY and APP_BASE_URL:
+    if not betaallink:
         try:
-            betaallink = maak_mollie_payment(factuur_id, totaal, factuur["factuurnummer"])
-        except Exception as e:
-            flash(f"Mollie-betaallink kon niet aangemaakt worden, factuur wordt zonder verstuurd: {e}", "danger")
-
+            betaallink = maak_mollie_payment(fid, bek["totaal"], factuur["factuurnummer"])
+        except Exception:
+            betaallink = None
     regels_html = "".join(
-        f"<tr><td>{r['omschrijving']}</td><td>{r['aantal']}</td>"
-        f"<td>&euro; {r['prijs_per_stuk']:.2f}</td><td>&euro; {r['aantal']*r['prijs_per_stuk']:.2f}</td></tr>"
+        f"<tr><td>{r['omschrijving']}</td><td>{r['aantal']} {r.get('eenheid','st')}</td><td>&euro; {r['prijs_per_stuk']:.2f}</td><td>&euro; {r['aantal']*r['prijs_per_stuk']:.2f}</td></tr>"
         for r in regels
     )
-    betaal_html = (
-        f"<p><a href='{betaallink}'>Klik hier om direct online te betalen</a></p>" if betaallink else ""
-    )
-    html_body = f"""
-    <p>Beste {factuur['klant_naam']},</p>
-    <p>Hierbij ontvang je factuur <strong>{factuur['factuurnummer']}</strong>
-    van {BEDRIJFSNAAM}, met vervaldatum {factuur['vervaldatum']}.</p>
-    <table border="1" cellpadding="6" cellspacing="0">
-        <tr><th>Omschrijving</th><th>Aantal</th><th>Prijs p/s</th><th>Bedrag excl.</th></tr>
-        {regels_html}
-    </table>
-    <p>Subtotaal excl. BTW: &euro; {subtotaal:.2f}<br>
-    BTW: &euro; {btw_totaal:.2f}<br>
-    <strong>Totaal: &euro; {totaal:.2f}</strong></p>
-    {betaal_html}
-    <p>Met vriendelijke groet,<br>{BEDRIJFSNAAM}</p>
-    """
-
+    betaal_html = f"<p><a href='{betaallink}'>Klik hier om direct online te betalen</a></p>" if betaallink else ""
+    bedrijf = s.get("bedrijfsnaam", "")
+    html = f"""<p>Beste {factuur['klant_naam']},</p>
+<p>Hierbij ontvangt u factuur <strong>{factuur['factuurnummer']}</strong> van {bedrijf}, vervaldatum {factuur['vervaldatum']}.</p>
+<table border="1" cellpadding="6" cellspacing="0"><tr><th>Omschrijving</th><th>Aantal</th><th>Prijs</th><th>Bedrag</th></tr>{regels_html}</table>
+<p>Subtotaal: &euro; {bek['subtotaal']:.2f}<br>BTW: &euro; {bek['btw_totaal']:.2f}<br><strong>Totaal: &euro; {bek['totaal']:.2f}</strong></p>
+{betaal_html}<p>Met vriendelijke groet,<br>{bedrijf}</p>"""
     try:
-        verstuur_email(factuur["klant_email"], f"Factuur {factuur['factuurnummer']}", html_body)
-        db.execute("UPDATE facturen SET status='open' WHERE id=? AND status='concept'", (factuur_id,))
+        verstuur_email(factuur["klant_email"], f"Factuur {factuur['factuurnummer']}", html)
+        db.execute("UPDATE facturen SET status='verzonden' WHERE id=? AND status='concept'", (fid,))
         db.commit()
         flash(f"Factuur verstuurd naar {factuur['klant_email']}.", "success")
     except Exception as e:
-        flash(f"E-mail versturen mislukt: {e}", "danger")
-
-    return redirect(url_for("factuur_bekijken", factuur_id=factuur_id))
+        flash(f"E-mail mislukt: {e}", "danger")
+    return redirect(url_for("factuur_bekijken", fid=fid))
 
 
 @app.route("/mollie/webhook", methods=["POST"])
 def mollie_webhook():
-    """
-    Mollie webhook endpoint. Mollie stuurt hier alleen een payment id naartoe (geen statusdata) -
-    we vragen de status altijd opnieuw zelf op bij Mollie, nooit vertrouwen op de payload zelf.
-    Let op: deze URL moet publiek bereikbaar zijn (zie APP_BASE_URL in .env / ngrok / hosting).
-    """
     payment_id = request.form.get("id")
-    if not payment_id or not MOLLIE_API_KEY:
+    key = _mollie_key()
+    if not payment_id or not key:
         return "", 400
-
     from mollie.api.client import Client
-
-    mollie_client = Client()
-    mollie_client.set_api_key(MOLLIE_API_KEY)
-
+    mc = Client()
+    mc.set_api_key(key)
     try:
-        payment = mollie_client.payments.get(payment_id)
+        p = mc.payments.get(payment_id)
     except Exception:
         return "", 404
-
-    factuur_id = (payment.metadata or {}).get("factuur_id")
-    if not factuur_id:
+    fid = (p.metadata or {}).get("factuur_id")
+    if not fid:
         return "", 200
-
     db = get_db()
-    if payment.is_paid():
-        db.execute("UPDATE facturen SET status='betaald' WHERE id=?", (factuur_id,))
-    elif payment.is_expired() or payment.is_canceled() or payment.is_failed():
-        db.execute("UPDATE facturen SET status='vervallen' WHERE id=?", (factuur_id,))
+    if p.is_paid():
+        db.execute("UPDATE facturen SET status='betaald' WHERE id=?", (fid,))
+    elif p.is_expired() or p.is_canceled() or p.is_failed():
+        db.execute("UPDATE facturen SET status='vervallen' WHERE id=?", (fid,))
     db.commit()
     return "", 200
 
 
-@app.route("/facturen/<int:factuur_id>/verwijderen", methods=["POST"])
-def factuur_verwijderen(factuur_id):
+@app.route("/facturen/<int:fid>/verwijderen", methods=["POST"])
+def factuur_verwijderen(fid):
     db = get_db()
-    db.execute("DELETE FROM facturen WHERE id=?", (factuur_id,))
+    db.execute("DELETE FROM facturen WHERE id=?", (fid,))
     db.commit()
     flash("Factuur verwijderd.", "success")
     return redirect(url_for("facturen"))
 
 
-# ---------- Uitgaven ----------
+# ─── Producten ────────────────────────────────────────────────────────────────
+
+@app.route("/producten")
+def producten():
+    return render_template("producten.html", producten=get_db().execute("SELECT * FROM producten ORDER BY naam").fetchall())
+
+
+@app.route("/producten/json")
+def producten_json():
+    rows = get_db().execute("SELECT id,naam,beschrijving,prijs,eenheid FROM producten ORDER BY naam").fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/producten/nieuw", methods=["GET", "POST"])
+def product_nieuw():
+    if request.method == "POST":
+        db = get_db()
+        db.execute("INSERT INTO producten (naam,beschrijving,prijs,eenheid) VALUES (?,?,?,?)",
+                   (request.form["naam"], request.form.get("beschrijving"),
+                    float(request.form.get("prijs", 0)), request.form.get("eenheid", "st")))
+        db.commit()
+        flash("Product toegevoegd.", "success")
+        return redirect(url_for("producten"))
+    return render_template("product_form.html", product=None)
+
+
+@app.route("/producten/<int:pid>/bewerken", methods=["GET", "POST"])
+def product_bewerken(pid):
+    db = get_db()
+    if request.method == "POST":
+        db.execute("UPDATE producten SET naam=?,beschrijving=?,prijs=?,eenheid=? WHERE id=?",
+                   (request.form["naam"], request.form.get("beschrijving"),
+                    float(request.form.get("prijs", 0)), request.form.get("eenheid", "st"), pid))
+        db.commit()
+        flash("Product bijgewerkt.", "success")
+        return redirect(url_for("producten"))
+    return render_template("product_form.html", product=db.execute("SELECT * FROM producten WHERE id=?", (pid,)).fetchone())
+
+
+@app.route("/producten/<int:pid>/verwijderen", methods=["POST"])
+def product_verwijderen(pid):
+    db = get_db()
+    db.execute("DELETE FROM producten WHERE id=?", (pid,))
+    db.commit()
+    flash("Product verwijderd.", "success")
+    return redirect(url_for("producten"))
+
+
+# ─── Uitgaven ─────────────────────────────────────────────────────────────────
 
 @app.route("/uitgaven")
 def uitgaven():
-    db = get_db()
-    alle_uitgaven = db.execute("SELECT * FROM uitgaven ORDER BY datum DESC").fetchall()
-    return render_template("uitgaven.html", uitgaven=alle_uitgaven)
+    return render_template("uitgaven.html", uitgaven=get_db().execute("SELECT * FROM uitgaven ORDER BY datum DESC").fetchall())
 
 
 @app.route("/uitgaven/nieuw", methods=["GET", "POST"])
@@ -567,120 +1104,307 @@ def uitgave_nieuw():
     if request.method == "POST":
         db = get_db()
         db.execute(
-            "INSERT INTO uitgaven (datum, omschrijving, categorie, bedrag_excl_btw, btw_percentage, zakelijk_percentage, leverancier, notities) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            (
-                request.form["datum"],
-                request.form["omschrijving"],
-                request.form.get("categorie"),
-                float(request.form["bedrag_excl_btw"]),
-                float(request.form.get("btw_percentage", 21)),
-                float(request.form.get("zakelijk_percentage", 100)),
-                request.form.get("leverancier"),
-                request.form.get("notities"),
-            ),
+            "INSERT INTO uitgaven (datum,omschrijving,categorie,bedrag_excl_btw,btw_percentage,zakelijk_percentage,leverancier,notities) VALUES (?,?,?,?,?,?,?,?)",
+            (request.form["datum"], request.form["omschrijving"], request.form.get("categorie"),
+             float(request.form["bedrag_excl_btw"]), float(request.form.get("btw_percentage", 21)),
+             float(request.form.get("zakelijk_percentage", 100)),
+             request.form.get("leverancier"), request.form.get("notities")),
         )
         db.commit()
         flash("Uitgave toegevoegd.", "success")
         return redirect(url_for("uitgaven"))
-    return render_template("uitgave_form.html", vandaag=date.today().isoformat())
+    return render_template("uitgave_form.html", vandaag=date.today().isoformat(), uitgave=None)
 
 
-@app.route("/uitgaven/<int:uitgave_id>/verwijderen", methods=["POST"])
-def uitgave_verwijderen(uitgave_id):
+@app.route("/uitgaven/<int:uid>/bewerken", methods=["GET", "POST"])
+def uitgave_bewerken(uid):
     db = get_db()
-    db.execute("DELETE FROM uitgaven WHERE id=?", (uitgave_id,))
-    db.commit()
+    if request.method == "POST":
+        db.execute(
+            "UPDATE uitgaven SET datum=?,omschrijving=?,categorie=?,bedrag_excl_btw=?,btw_percentage=?,zakelijk_percentage=?,leverancier=?,notities=? WHERE id=?",
+            (request.form["datum"], request.form["omschrijving"], request.form.get("categorie"),
+             float(request.form["bedrag_excl_btw"]), float(request.form.get("btw_percentage", 21)),
+             float(request.form.get("zakelijk_percentage", 100)),
+             request.form.get("leverancier"), request.form.get("notities"), uid),
+        )
+        db.commit()
+        flash("Uitgave bijgewerkt.", "success")
+        return redirect(url_for("uitgaven"))
+    return render_template("uitgave_form.html", vandaag=date.today().isoformat(),
+                           uitgave=db.execute("SELECT * FROM uitgaven WHERE id=?", (uid,)).fetchone())
+
+
+@app.route("/uitgaven/<int:uid>/verwijderen", methods=["POST"])
+def uitgave_verwijderen(uid):
+    get_db().execute("DELETE FROM uitgaven WHERE id=?", (uid,))
+    get_db().commit()
     flash("Uitgave verwijderd.", "success")
     return redirect(url_for("uitgaven"))
 
 
-# ---------- BTW overzicht ----------
+# ─── BTW ──────────────────────────────────────────────────────────────────────
 
 @app.route("/btw")
 def btw_overzicht():
     db = get_db()
     jaar = int(request.args.get("jaar", datetime.now().year))
-
-    kwartalen_data = []
+    kwartalen = []
     for q in range(1, 5):
-        start_maand = (q - 1) * 3 + 1
-        eind_maand = start_maand + 2
-        start = f"{jaar}-{start_maand:02d}-01"
-        eind = f"{jaar}-{eind_maand:02d}-31"
-
-        btw_verschuldigd = db.execute(
-            "SELECT COALESCE(SUM(fr.aantal*fr.prijs_per_stuk*fr.btw_percentage/100.0),0) AS totaal "
-            "FROM factuurregels fr JOIN facturen f ON f.id = fr.factuur_id "
-            "WHERE f.factuurdatum BETWEEN ? AND ? AND f.status != 'concept'",
-            (start, eind),
-        ).fetchone()["totaal"]
-
-        omzet_excl = db.execute(
-            "SELECT COALESCE(SUM(fr.aantal*fr.prijs_per_stuk),0) AS totaal "
-            "FROM factuurregels fr JOIN facturen f ON f.id = fr.factuur_id "
-            "WHERE f.factuurdatum BETWEEN ? AND ? AND f.status != 'concept'",
-            (start, eind),
-        ).fetchone()["totaal"]
-
-        btw_voorbelasting = db.execute(
-            "SELECT COALESCE(SUM(bedrag_excl_btw * btw_percentage/100.0 * (zakelijk_percentage/100.0)),0) AS totaal "
-            "FROM uitgaven WHERE datum BETWEEN ? AND ?",
-            (start, eind),
-        ).fetchone()["totaal"]
-
-        kosten_excl = db.execute(
-            "SELECT COALESCE(SUM(bedrag_excl_btw * (zakelijk_percentage/100.0)),0) AS totaal "
-            "FROM uitgaven WHERE datum BETWEEN ? AND ?",
-            (start, eind),
-        ).fetchone()["totaal"]
-
-        kwartalen_data.append(
-            {
-                "kwartaal": q,
-                "omzet_excl": round(omzet_excl, 2),
-                "kosten_excl": round(kosten_excl, 2),
-                "btw_verschuldigd": round(btw_verschuldigd, 2),
-                "btw_voorbelasting": round(btw_voorbelasting, 2),
-                "btw_te_betalen": round(btw_verschuldigd - btw_voorbelasting, 2),
-            }
-        )
-
-    return render_template("btw.html", kwartalen=kwartalen_data, jaar=jaar)
+        sm = (q - 1) * 3 + 1
+        start = f"{jaar}-{sm:02d}-01"
+        eind = f"{jaar}-{sm+2:02d}-31"
+        btw_v = db.execute("SELECT COALESCE(SUM(fr.aantal*fr.prijs_per_stuk*fr.btw_percentage/100.0),0) AS t FROM factuurregels fr JOIN facturen f ON f.id=fr.factuur_id WHERE f.factuurdatum BETWEEN ? AND ? AND f.status!='concept'", (start, eind)).fetchone()["t"]
+        omzet = db.execute("SELECT COALESCE(SUM(fr.aantal*fr.prijs_per_stuk),0) AS t FROM factuurregels fr JOIN facturen f ON f.id=fr.factuur_id WHERE f.factuurdatum BETWEEN ? AND ? AND f.status!='concept'", (start, eind)).fetchone()["t"]
+        btw_vb = db.execute("SELECT COALESCE(SUM(bedrag_excl_btw*btw_percentage/100.0*(zakelijk_percentage/100.0)),0) AS t FROM uitgaven WHERE datum BETWEEN ? AND ?", (start, eind)).fetchone()["t"]
+        kosten = db.execute("SELECT COALESCE(SUM(bedrag_excl_btw*(zakelijk_percentage/100.0)),0) AS t FROM uitgaven WHERE datum BETWEEN ? AND ?", (start, eind)).fetchone()["t"]
+        kwartalen.append({"kwartaal": q, "omzet_excl": round(omzet, 2), "kosten_excl": round(kosten, 2),
+                          "btw_verschuldigd": round(btw_v, 2), "btw_voorbelasting": round(btw_vb, 2),
+                          "btw_te_betalen": round(btw_v - btw_vb, 2)})
+    return render_template("btw.html", kwartalen=kwartalen, jaar=jaar)
 
 
-# ---------- Jaaroverzicht / aangifte-hulp ----------
+# ─── Jaaroverzicht ────────────────────────────────────────────────────────────
 
 @app.route("/jaaroverzicht")
 def jaaroverzicht():
     db = get_db()
     jaar = int(request.args.get("jaar", datetime.now().year))
+    omzet = db.execute("SELECT COALESCE(SUM(fr.aantal*fr.prijs_per_stuk),0) AS t FROM factuurregels fr JOIN facturen f ON f.id=fr.factuur_id WHERE f.factuurdatum LIKE ? AND f.status!='concept'", (f"{jaar}-%",)).fetchone()["t"]
+    kosten_cat = db.execute("SELECT COALESCE(categorie,'Overig') AS categorie, COALESCE(SUM(bedrag_excl_btw*(zakelijk_percentage/100.0)),0) AS totaal FROM uitgaven WHERE datum LIKE ? GROUP BY categorie ORDER BY totaal DESC", (f"{jaar}-%",)).fetchall()
+    totale_kosten = sum(r["totaal"] for r in kosten_cat)
+    return render_template("jaaroverzicht.html", jaar=jaar, omzet=round(omzet, 2),
+                           kosten_per_cat=kosten_cat, totale_kosten=round(totale_kosten, 2),
+                           winst=round(omzet - totale_kosten, 2))
 
-    omzet = db.execute(
-        "SELECT COALESCE(SUM(fr.aantal*fr.prijs_per_stuk),0) AS totaal FROM factuurregels fr "
-        "JOIN facturen f ON f.id = fr.factuur_id WHERE f.factuurdatum LIKE ? AND f.status != 'concept'",
-        (f"{jaar}-%",),
-    ).fetchone()["totaal"]
 
-    kosten_per_categorie = db.execute(
-        "SELECT COALESCE(categorie,'Overig') AS categorie, "
-        "COALESCE(SUM(bedrag_excl_btw*(zakelijk_percentage/100.0)),0) AS totaal "
-        "FROM uitgaven WHERE datum LIKE ? GROUP BY categorie ORDER BY totaal DESC",
-        (f"{jaar}-%",),
-    ).fetchall()
+# ─── Instellingen ─────────────────────────────────────────────────────────────
 
-    totale_kosten = sum(r["totaal"] for r in kosten_per_categorie)
-    winst_voor_aftrek = round(omzet - totale_kosten, 2)
+@app.route("/instellingen", methods=["GET", "POST"])
+def instellingen():
+    db = get_db()
+    if request.method == "POST":
+        f = request.form
+        db.execute(
+            """UPDATE instellingen SET bedrijfsnaam=?,adres=?,postcode=?,stad=?,email=?,telefoon=?,
+               kvk=?,btwnummer=?,iban=?,betalingstermijn=?,factuurprefix=?,factuurvolgend=?,
+               alg_voorwaarden=?,juridisch_voetnoot=?,mollie_key_test=?,mollie_key_live=?,mollie_mode=?,
+               smtp_host=?,smtp_port=?,smtp_user=?,smtp_password=?,smtp_from=?,smtp_use_tls=?,app_base_url=?
+               WHERE id=1""",
+            (f.get("bedrijfsnaam",""), f.get("adres",""), f.get("postcode",""), f.get("stad",""),
+             f.get("email",""), f.get("telefoon",""), f.get("kvk",""), f.get("btwnummer",""),
+             f.get("iban",""), int(f.get("betalingstermijn",30)),
+             f.get("factuurprefix","FAC"), int(f.get("factuurvolgend",1)),
+             f.get("alg_voorwaarden",""), f.get("juridisch_voetnoot",""),
+             f.get("mollie_key_test",""), f.get("mollie_key_live",""), f.get("mollie_mode","test"),
+             f.get("smtp_host",""), int(f.get("smtp_port",587)),
+             f.get("smtp_user",""), f.get("smtp_password",""), f.get("smtp_from",""),
+             1 if f.get("smtp_use_tls") else 0, f.get("app_base_url",""))
+        )
+        db.commit()
+        g.pop("settings", None)
+        flash("Instellingen opgeslagen.", "success")
+        return redirect(url_for("instellingen", tab=f.get("active_tab", "bedrijf")))
+    s = get_settings()
+    tab = request.args.get("tab", "bedrijf")
+    compliance = {k: bool(s.get(k)) for k in ("bedrijfsnaam", "adres", "kvk", "btwnummer", "iban", "email")}
+    return render_template("instellingen.html", s=s, tab=tab, compliance=compliance)
 
-    return render_template(
-        "jaaroverzicht.html",
-        jaar=jaar,
-        omzet=round(omzet, 2),
-        kosten_per_categorie=kosten_per_categorie,
-        totale_kosten=round(totale_kosten, 2),
-        winst_voor_aftrek=winst_voor_aftrek,
-    )
 
+# ─── Word template beheer ─────────────────────────────────────────────────────
+
+@app.route("/instellingen/word-template")
+def word_template_download():
+    if not os.path.exists(TEMPLATE_PAD):
+        _maak_default_template()
+    if not os.path.exists(TEMPLATE_PAD):
+        flash("Geen Word-template beschikbaar (python-docx niet geïnstalleerd).", "danger")
+        return redirect(url_for("instellingen"))
+    return send_file(TEMPLATE_PAD, as_attachment=True, download_name="factuur_template.docx",
+                     mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+
+@app.route("/instellingen/word-template/upload", methods=["POST"])
+def word_template_upload():
+    f = request.files.get("template")
+    if not f or not f.filename.endswith(".docx"):
+        flash("Upload een geldig .docx bestand.", "danger")
+        return redirect(url_for("instellingen"))
+    f.save(TEMPLATE_PAD)
+    flash("Word-template geüpload. Vanaf nu worden facturen via dit template gegenereerd.", "success")
+    return redirect(url_for("instellingen"))
+
+
+@app.route("/instellingen/word-template/reset", methods=["POST"])
+def word_template_reset():
+    if os.path.exists(TEMPLATE_PAD):
+        os.remove(TEMPLATE_PAD)
+    _maak_default_template()
+    flash("Word-template teruggezet naar standaard.", "success")
+    return redirect(url_for("instellingen"))
+
+
+# ─── Periodieke facturen ──────────────────────────────────────────────────────
+
+@app.route("/periodiek")
+def periodieke_facturen():
+    rows = get_db().execute("SELECT p.*, k.naam AS klant_naam FROM periodieke_facturen p JOIN klanten k ON k.id=p.klant_id ORDER BY p.volgende_datum").fetchall()
+    return render_template("periodieke_facturen.html", schema_lijst=rows)
+
+
+@app.route("/periodiek/nieuw", methods=["GET", "POST"])
+def periodiek_nieuw():
+    db = get_db()
+    if request.method == "POST":
+        omschr = request.form["omschrijving"]
+        cur = db.execute(
+            "INSERT INTO periodieke_facturen (naam,klant_id,interval,volgende_datum,actief,betalingstermijn) VALUES (?,?,?,?,1,?)",
+            (omschr, request.form["klant_id"], request.form["interval"],
+             request.form["volgende_datum"], int(request.form.get("betalingstermijn", 30))),
+        )
+        pid = cur.lastrowid
+        # Main regel from bedrag_excl_btw
+        bedrag = float(request.form.get("bedrag_excl_btw") or 0)
+        btw = float(request.form.get("btw_percentage") or 21)
+        db.execute("INSERT INTO periodieke_regels (periodiek_id,omschrijving,aantal,eenheid,prijs_per_stuk,btw_percentage) VALUES (?,?,?,?,?,?)",
+                   (pid, omschr, 1, "st", bedrag, btw))
+        # Extra regels
+        for ro, ra, rp, rb, re in zip(
+            request.form.getlist("regel_omschrijving"), request.form.getlist("regel_aantal"),
+            request.form.getlist("regel_prijs"), request.form.getlist("regel_btw"),
+            request.form.getlist("regel_eenheid"),
+        ):
+            if ro.strip():
+                db.execute("INSERT INTO periodieke_regels (periodiek_id,omschrijving,aantal,eenheid,prijs_per_stuk,btw_percentage) VALUES (?,?,?,?,?,?)",
+                           (pid, ro, float(ra or 1), re or "st", float(rp or 0), float(rb or 21)))
+        db.commit()
+        flash("Periodieke factuur aangemaakt.", "success")
+        return redirect(url_for("periodieke_facturen"))
+    return render_template("periodiek_form.html",
+                           klanten=db.execute("SELECT * FROM klanten ORDER BY naam").fetchall(),
+                           schema=None, regels=[])
+
+
+@app.route("/periodiek/<int:pid>/bewerken", methods=["GET", "POST"])
+def periodiek_bewerken(pid):
+    db = get_db()
+    if request.method == "POST":
+        omschr = request.form["omschrijving"]
+        db.execute(
+            "UPDATE periodieke_facturen SET naam=?,klant_id=?,interval=?,volgende_datum=?,betalingstermijn=? WHERE id=?",
+            (omschr, request.form["klant_id"], request.form["interval"],
+             request.form["volgende_datum"], int(request.form.get("betalingstermijn", 30)), pid),
+        )
+        db.execute("DELETE FROM periodieke_regels WHERE periodiek_id=?", (pid,))
+        bedrag = float(request.form.get("bedrag_excl_btw") or 0)
+        btw = float(request.form.get("btw_percentage") or 21)
+        db.execute("INSERT INTO periodieke_regels (periodiek_id,omschrijving,aantal,eenheid,prijs_per_stuk,btw_percentage) VALUES (?,?,?,?,?,?)",
+                   (pid, omschr, 1, "st", bedrag, btw))
+        for ro, ra, rp, rb, re in zip(
+            request.form.getlist("regel_omschrijving"), request.form.getlist("regel_aantal"),
+            request.form.getlist("regel_prijs"), request.form.getlist("regel_btw"),
+            request.form.getlist("regel_eenheid"),
+        ):
+            if ro.strip():
+                db.execute("INSERT INTO periodieke_regels (periodiek_id,omschrijving,aantal,eenheid,prijs_per_stuk,btw_percentage) VALUES (?,?,?,?,?,?)",
+                           (pid, ro, float(ra or 1), re or "st", float(rp or 0), float(rb or 21)))
+        db.commit()
+        flash("Periodieke factuur bijgewerkt.", "success")
+        return redirect(url_for("periodieke_facturen"))
+    schema = db.execute("SELECT * FROM periodieke_facturen WHERE id=?", (pid,)).fetchone()
+    regels = db.execute("SELECT * FROM periodieke_regels WHERE periodiek_id=?", (pid,)).fetchall()
+    return render_template("periodiek_form.html",
+                           klanten=db.execute("SELECT * FROM klanten ORDER BY naam").fetchall(),
+                           schema=schema, regels=regels)
+
+
+@app.route("/periodiek/<int:pid>/verwijderen", methods=["POST"])
+def periodiek_verwijderen(pid):
+    db = get_db()
+    db.execute("DELETE FROM periodieke_facturen WHERE id=?", (pid,))
+    db.commit()
+    flash("Periodieke factuur verwijderd.", "success")
+    return redirect(url_for("periodieke_facturen"))
+
+
+@app.route("/periodiek/<int:pid>/toggle", methods=["POST"])
+def periodiek_toggle(pid):
+    db = get_db()
+    db.execute("UPDATE periodieke_facturen SET actief = CASE WHEN actief=1 THEN 0 ELSE 1 END WHERE id=?", (pid,))
+    db.commit()
+    return redirect(url_for("periodieke_facturen"))
+
+
+@app.route("/cron/periodiek", methods=["GET", "POST"])
+def cron_periodiek():
+    n = _verwerk_periodieke_facturen()
+    flash(f"{n} periodieke factuur(en) verwerkt.", "success")
+    return redirect(url_for("periodieke_facturen"))
+
+
+def _verwerk_periodieke_facturen():
+    db = sqlite3.connect(DB_PATH)
+    db.row_factory = sqlite3.Row
+    try:
+        vandaag = date.today().isoformat()
+        due = db.execute("SELECT * FROM periodieke_facturen WHERE actief=1 AND volgende_datum<=?", (vandaag,)).fetchall()
+        count = 0
+        for p in due:
+            regels = db.execute("SELECT * FROM periodieke_regels WHERE periodiek_id=?", (p["id"],)).fetchall()
+            s_row = db.execute("SELECT factuurprefix,factuurvolgend FROM instellingen WHERE id=1").fetchone()
+            prefix = (s_row["factuurprefix"] or "FAC") if s_row else "FAC"
+            volgnr = (s_row["factuurvolgend"] or 1) if s_row else 1
+            nr = f"{prefix}-{volgnr:04d}"
+            bt = p["betalingstermijn"] or 30
+            fd = date.today()
+            vd = fd + timedelta(days=int(bt))
+            cur = db.execute(
+                "INSERT INTO facturen (factuurnummer,klant_id,factuurdatum,vervaldatum,status,notities,betalingstermijn) VALUES (?,?,?,?,?,?,?)",
+                (nr, p["klant_id"], fd.isoformat(), vd.isoformat(), "open", p["notities"], bt),
+            )
+            fid = cur.lastrowid
+            # Bereken periode op basis van interval en volgende_datum
+        schema_datum = date.fromisoformat(p["volgende_datum"])
+        interval = p["interval"]
+        if interval == "maandelijks":
+            pv = schema_datum.replace(day=1)
+            pt = schema_datum.replace(day=monthrange(schema_datum.year, schema_datum.month)[1])
+        elif interval == "kwartaal":
+            q_start = ((schema_datum.month - 1) // 3) * 3 + 1
+            pv = date(schema_datum.year, q_start, 1)
+            q_end_m = q_start + 2
+            pt = date(schema_datum.year, q_end_m, monthrange(schema_datum.year, q_end_m)[1])
+        elif interval == "jaarlijks":
+            pv = date(schema_datum.year, 1, 1)
+            pt = date(schema_datum.year, 12, 31)
+        else:
+            pv = pt = None
+
+        for r in regels:
+            regel_pv = r["periode_van"] if r["periode_van"] else (pv.isoformat() if pv else None)
+            regel_pt = r["periode_tot"] if r["periode_tot"] else (pt.isoformat() if pt else None)
+            db.execute(
+                "INSERT INTO factuurregels (factuur_id,omschrijving,aantal,eenheid,prijs_per_stuk,btw_percentage,periode_van,periode_tot) VALUES (?,?,?,?,?,?,?,?)",
+                (fid, r["omschrijving"], r["aantal"], r["eenheid"] or "st", r["prijs_per_stuk"], r["btw_percentage"], regel_pv, regel_pt),
+            )
+            volgende = volgend_periodiek_datum(date.fromisoformat(p["volgende_datum"]), p["interval"])
+            db.execute("UPDATE periodieke_facturen SET volgende_datum=? WHERE id=?", (volgende.isoformat(), p["id"]))
+            db.execute("UPDATE instellingen SET factuurvolgend=factuurvolgend+1 WHERE id=1")
+            count += 1
+        db.commit()
+        return count
+    finally:
+        db.close()
+
+
+# ─── Scheduler ────────────────────────────────────────────────────────────────
+
+if HAS_SCHEDULER:
+    _scheduler = BackgroundScheduler()
+    _scheduler.add_job(_verwerk_periodieke_facturen, "cron", hour=8, minute=0, id="periodiek_daily")
+    _scheduler.start()
+
+
+# ─── Main ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     init_db()

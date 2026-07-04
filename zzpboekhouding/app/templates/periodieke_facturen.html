@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Periodieke facturen{% endblock %}
+{% block topbar_title %}PERIODIEKE FACTUREN{% endblock %}
+{% block topbar_extra %}
+  <a href="{{ url_for('periodiek_nieuw') }}" class="btn">⊕ NIEUW SCHEMA</a>
+{% endblock %}
+{% block content %}
+
+{% if schema_lijst %}
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>OMSCHRIJVING</th>
+      <th style="width:140px">KLANT</th>
+      <th style="width:100px">INTERVAL</th>
+      <th style="width:120px">BEDRAG</th>
+      <th style="width:110px">VOLGENDE DATUM</th>
+      <th style="width:80px">ACTIEF</th>
+      <th style="width:100px">ACTIES</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in schema_lijst %}
+    <tr>
+      <td style="font-weight:600">{{ p.naam }}</td>
+      <td class="mono" style="font-size:11px;color:var(--muted)">{{ p.klant_naam or '—' }}</td>
+      <td><span class="badge" style="background:rgba(240,165,0,.12);color:var(--amber)">{{ p.interval|upper }}</span></td>
+      <td class="mono" style="font-size:13px;font-weight:600">€ {{ "%.2f"|format(p.bedrag_excl_btw) }}</td>
+      <td class="mono" style="font-size:11px;color:var(--muted)">{{ p.volgende_datum }}</td>
+      <td>
+        <form method="POST" action="{{ url_for('periodiek_toggle', pid=p.id) }}" style="display:inline">
+          <button type="submit" class="btn-icon" title="{{ 'Deactiveren' if p.actief else 'Activeren' }}"
+                  style="color:{{ 'var(--green)' if p.actief else 'var(--red)' }}">
+            {{ '●' if p.actief else '○' }}
+          </button>
+        </form>
+      </td>
+      <td>
+        <a href="{{ url_for('periodiek_bewerken', pid=p.id) }}" class="btn-icon" title="Bewerken">✎</a>
+        <form method="POST" action="{{ url_for('periodiek_verwijderen', pid=p.id) }}" style="display:inline"
+              onsubmit="return confirm('{{ p.omschrijving }} verwijderen?')">
+          <button type="submit" class="btn-icon d">✕</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div class="info-banner" style="margin-top:20px">
+  <strong>Automatisch verwerkt:</strong> Actieve schema's worden dagelijks om 08:00 verwerkt. Facturen worden aangemaakt als de volgende datum ≤ vandaag is. Je kunt handmatig triggeren via
+  <form method="POST" action="{{ url_for('cron_periodiek') }}" style="display:inline">
+    <button type="submit" class="btn-sec" style="margin-left:8px;padding:4px 12px;font-size:10px">↺ NU VERWERKEN</button>
+  </form>
+</div>
+
+{% else %}
+<div class="empty">
+  <div class="empty-icon">↺</div>
+  <p>Geen periodieke factuurschema's ingesteld.</p>
+  <a href="{{ url_for('periodiek_nieuw') }}" class="btn">⊕ EERSTE SCHEMA AANMAKEN</a>
+</div>
+{% endif %}
+
+{% endblock %}

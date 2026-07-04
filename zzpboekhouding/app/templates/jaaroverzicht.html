@@ -1,53 +1,53 @@
 {% extends "base.html" %}
 {% block title %}Jaaroverzicht{% endblock %}
+{% block topbar_title %}JAAROVERZICHT {{ jaar }}{% endblock %}
+{% block topbar_extra %}
+  <form method="GET" style="display:flex;gap:8px;align-items:center">
+    <input type="number" name="jaar" value="{{ jaar }}" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:7px 10px;font-family:var(--font-mono);font-size:10px;width:80px">
+    <button type="submit" class="btn-sec">TONEN</button>
+  </form>
+{% endblock %}
 {% block content %}
-<h1>Jaaroverzicht {{ jaar }} (basis voor IB-aangifte)</h1>
 
-<form method="get" class="form-inline">
-    <label>Jaar <input type="number" name="jaar" value="{{ jaar }}" style="width:90px"></label>
-    <button type="submit" class="btn btn-secondary">Tonen</button>
-</form>
-
-<div class="cards">
-    <div class="card">
-        <div class="card-label">Omzet (excl. BTW)</div>
-        <div class="card-value">&euro; {{ "%.2f"|format(omzet) }}</div>
-    </div>
-    <div class="card">
-        <div class="card-label">Totale kosten (excl. BTW)</div>
-        <div class="card-value">&euro; {{ "%.2f"|format(totale_kosten) }}</div>
-    </div>
-    <div class="card">
-        <div class="card-label">Winst v&oacute;&oacute;r aftrek</div>
-        <div class="card-value">&euro; {{ "%.2f"|format(winst_voor_aftrek) }}</div>
-    </div>
+<div class="stats-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:28px">
+  <div class="stat-card c-amber">
+    <div class="stat-label">OMZET (EXCL. BTW)</div>
+    <div class="stat-value">€ {{ "%.2f"|format(omzet) }}</div>
+  </div>
+  <div class="stat-card c-muted">
+    <div class="stat-label">TOTALE KOSTEN</div>
+    <div class="stat-value">€ {{ "%.2f"|format(totale_kosten) }}</div>
+  </div>
+  <div class="stat-card {{ 'c-green' if winst >= 0 else 'c-red' }}">
+    <div class="stat-label">WINST VÓÓR AFTREK</div>
+    <div class="stat-value">€ {{ "%.2f"|format(winst) }}</div>
+  </div>
 </div>
 
-<h2>Kosten per categorie</h2>
-<table class="data-table">
-    <thead><tr><th>Categorie</th><th>Bedrag excl. BTW</th></tr></thead>
+<div class="panel">
+  <div class="panel-title">KOSTEN PER CATEGORIE</div>
+  {% if kosten_per_cat %}
+  <table class="data-table">
+    <thead>
+      <tr><th>CATEGORIE</th><th style="width:200px">BEDRAG EXCL. BTW</th></tr>
+    </thead>
     <tbody>
-    {% for c in kosten_per_categorie %}
-        <tr><td>{{ c.categorie }}</td><td>&euro; {{ "%.2f"|format(c.totaal) }}</td></tr>
-    {% else %}
-        <tr><td colspan="2">Geen uitgaven gevonden voor dit jaar.</td></tr>
-    {% endfor %}
+      {% for c in kosten_per_cat %}
+      <tr>
+        <td>{{ c.categorie }}</td>
+        <td class="mono" style="font-weight:600">€ {{ "%.2f"|format(c.totaal) }}</td>
+      </tr>
+      {% endfor %}
     </tbody>
-</table>
-
-<div class="hint-box">
-    <h3>Let op &mdash; dit is geen belastingaangifte</h3>
-    <p>Dit overzicht geeft je de basisgetallen (omzet, kosten, winst v&oacute;&oacute;r aftrek) die je nodig hebt
-    als startpunt voor je IB-aangifte als ondernemer. Voor de daadwerkelijke aangifte komen daar nog
-    zaken bij die deze app niet berekent, zoals:</p>
-    <ul>
-        <li>Zelfstandigenaftrek en startersaftrek</li>
-        <li>MKB-winstvrijstelling</li>
-        <li>Oudedagsreserve (indien van toepassing)</li>
-        <li>Eventuele investeringsaftrek (KIA) bij grote aanschaffingen</li>
-        <li>Correcte verwerking van het urencriterium</li>
-    </ul>
-    <p>Gebruik dit overzicht als input voor je boekhouder of de Belastingdienst-rekenhulp, niet als
-    vervanging van fiscaal advies.</p>
+  </table>
+  {% else %}
+  <p style="color:var(--muted);font-family:var(--font-mono);font-size:11px">Geen uitgaven gevonden voor {{ jaar }}.</p>
+  {% endif %}
 </div>
+
+<div class="info-banner">
+  <strong>Let op — dit is geen belastingaangifte.</strong><br>
+  Dit overzicht toont de basisgetallen voor je IB-aangifte als ondernemer. Aanvullend zijn onder andere van toepassing: zelfstandigenaftrek, startersaftrek, MKB-winstvrijstelling, oudedagsreserve en het urencriterium. Gebruik dit als input voor je boekhouder of de rekenhulp van de Belastingdienst.
+</div>
+
 {% endblock %}

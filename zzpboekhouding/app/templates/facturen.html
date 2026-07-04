@@ -1,24 +1,54 @@
 {% extends "base.html" %}
 {% block title %}Facturen{% endblock %}
+{% block topbar_title %}ALLE FACTUREN{% endblock %}
+{% block topbar_extra %}
+  <a href="{{ url_for('factuur_nieuw') }}" class="btn">⊕ NIEUWE FACTUUR</a>
+{% endblock %}
 {% block content %}
-<h1>Facturen</h1>
-<div class="actions"><a class="btn" href="{{ url_for('factuur_nieuw') }}">+ Nieuwe factuur</a></div>
+
+{% if facturen %}
 <table class="data-table">
-    <thead><tr><th>Nummer</th><th>Klant</th><th>Datum</th><th>Vervaldatum</th><th>Totaal</th><th>Status</th><th></th></tr></thead>
-    <tbody>
+  <thead>
+    <tr>
+      <th style="width:140px">NUMMER</th>
+      <th>KLANT</th>
+      <th style="width:110px">DATUM</th>
+      <th style="width:110px">VERVALDAG</th>
+      <th style="width:130px">TOTAAL</th>
+      <th style="width:120px">STATUS</th>
+      <th style="width:150px">ACTIES</th>
+    </tr>
+  </thead>
+  <tbody>
     {% for f in facturen %}
-        <tr>
-            <td>{{ f.factuurnummer }}</td>
-            <td>{{ f.klant_naam }}</td>
-            <td>{{ f.factuurdatum }}</td>
-            <td>{{ f.vervaldatum }}</td>
-            <td>&euro; {{ "%.2f"|format(f.totaal) }}</td>
-            <td><span class="status status-{{ f.status }}">{{ f.status }}</span></td>
-            <td><a href="{{ url_for('factuur_bekijken', factuur_id=f.id) }}">Bekijken</a></td>
-        </tr>
-    {% else %}
-        <tr><td colspan="7">Nog geen facturen.</td></tr>
+    <tr>
+      <td><span class="m-amber">{{ f.factuurnummer }}</span></td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ f.klant_naam }}</td>
+      <td class="mono" style="font-size:11px;color:var(--muted)">{{ f.factuurdatum }}</td>
+      <td class="mono" style="font-size:11px;color:var(--muted)">{{ f.vervaldatum }}</td>
+      <td class="mono" style="font-size:13px;font-weight:600">€ {{ "%.2f"|format(f.totaal) }}</td>
+      <td><span class="badge {{ f.status }}">{{ f.status|upper }}</span></td>
+      <td>
+        <a href="{{ url_for('factuur_bewerken', fid=f.id) }}" class="btn-icon" title="Bewerken">✎</a>
+        <a href="{{ url_for('factuur_bekijken', fid=f.id) }}" class="btn-icon" title="Preview">⊡</a>
+        <form method="POST" action="{{ url_for('factuur_dupliceren', fid=f.id) }}" style="display:inline">
+          <button type="submit" class="btn-icon" title="Dupliceren">⊕</button>
+        </form>
+        <form method="POST" action="{{ url_for('factuur_verwijderen', fid=f.id) }}" style="display:inline"
+              onsubmit="return confirm('Factuur {{ f.factuurnummer }} verwijderen?')">
+          <button type="submit" class="btn-icon d" title="Verwijderen">✕</button>
+        </form>
+      </td>
+    </tr>
     {% endfor %}
-    </tbody>
+  </tbody>
 </table>
+{% else %}
+<div class="empty">
+  <div class="empty-icon">⊟</div>
+  <p>Nog geen facturen aangemaakt.</p>
+  <a href="{{ url_for('factuur_nieuw') }}" class="btn">⊕ NIEUWE FACTUUR</a>
+</div>
+{% endif %}
+
 {% endblock %}
