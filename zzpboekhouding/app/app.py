@@ -1391,8 +1391,15 @@ def cron_periodiek():
 @app.route("/mollie/check", methods=["POST"])
 def mollie_check():
     fid = request.form.get("fid")
-    _poll_mollie_status()
-    flash("Mollie betaalstatussen opgehaald.", "success")
+    s = get_settings()
+    poll_url = s.get("mollie_poll_url", "").strip()
+    poll_token = s.get("mollie_poll_token", "").strip()
+    if not poll_url or not poll_token:
+        flash("Poll URL of token niet ingesteld. Configureer dit via Instellingen → Mollie.", "danger")
+    else:
+        resultaat = _poll_mollie_status()
+        categorie = "danger" if any(w in resultaat for w in ["fout", "Fout", "bereiken", "geüpload"]) else "success"
+        flash(resultaat, categorie)
     if fid:
         return redirect(url_for("factuur_bekijken", fid=fid))
     return redirect(url_for("facturen"))
@@ -1605,35 +1612,43 @@ def _verifieer_mollie_betaling(payment_id: str) -> bool:
         return False
 
 
-def _poll_mollie_status():
+def _poll_mollie_status() -> str:
+    """Pollt it-bosch.nl voor nieuwe betaalstatussen. Geeft statusbericht terug."""
     with app.app_context():
         try:
             s = get_settings()
             poll_url = s.get("mollie_poll_url", "").strip()
             poll_token = s.get("mollie_poll_token", "").strip()
             if not poll_url or not poll_token:
-                return
+                return "Poll URL of token niet ingesteld."
             url = f"{poll_url.rstrip('/')}?token={urllib.parse.quote(poll_token)}"
             req = urllib.request.Request(url, headers={"User-Agent": "ZZP-Boekhouding/2"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                updates = _json.loads(resp.read().decode())
+            try:
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    updates = _json.loads(resp.read().decode())
+            except urllib.error.HTTPError as e:
+                return f"Verbindingsfout met it-bosch.nl: HTTP {e.code}. Zijn de PHP-bestanden geüpload?"
+            except Exception as e:
+                return f"Kan it-bosch.nl niet bereiken: {e}"
             if not updates:
-                return
+                return "Geen nieuwe betalingen gevonden."
             db = get_db()
+            bijgewerkt = 0
             for upd in updates:
                 pid = upd.get("payment_id", "")
                 if not pid:
                     continue
-                # Verifieer ALTIJD rechtstreeks bij Mollie — vertrouw nooit blind op de relay
                 if not _verifieer_mollie_betaling(pid):
                     continue
                 row = db.execute("SELECT id FROM facturen WHERE mollie_payment_id=?", (pid,)).fetchone()
                 if row:
                     db.execute("UPDATE facturen SET status='betaald' WHERE id=?", (row["id"],))
                     _stuur_betaalbevestiging(row["id"])
+                    bijgewerkt += 1
             db.commit()
-        except Exception:
-            pass
+            return f"{bijgewerkt} factuur/facturen bijgewerkt naar betaald." if bijgewerkt else "Geen nieuwe betalingen gevonden."
+        except Exception as e:
+            return f"Onverwachte fout: {e}"
 
 
 # ─── Scheduler ────────────────────────────────────────────────────────────────

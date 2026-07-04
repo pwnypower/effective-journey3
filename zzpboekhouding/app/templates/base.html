@@ -68,7 +68,7 @@
     <main class="content-area">
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% for cat, msg in messages %}
-          <div class="toast toast-{{ cat }}" onclick="this.remove()">{{ msg }}</div>
+          <div class="toast toast-{{ cat if cat in ['success','danger','info','warning'] else 'info' }}" onclick="this.remove()">{{ msg }}</div>
         {% endfor %}
       {% endwith %}
       {% block content %}{% endblock %}

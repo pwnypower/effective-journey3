@@ -233,7 +233,9 @@ a.btn, a.btn-sec, a.btn-danger {
 /* ─── Toasts ─────────────────────────────────────────────────────────────── */
 .toast { padding: 12px 18px; margin-bottom: 12px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; cursor: pointer; border-left: 3px solid; }
 .toast-success { background: rgba(61,143,90,0.1); border-color: var(--green); color: var(--green); }
-.toast-danger { background: rgba(155,58,58,0.1); border-color: var(--red); color: var(--red); }
+.toast-danger, .toast-error { background: rgba(155,58,58,0.1); border-color: var(--red); color: var(--red); }
+.toast-info, .toast-warning { background: rgba(240,165,0,0.1); border-color: var(--amber); color: var(--amber); }
+.toast- { background: rgba(240,165,0,0.1); border-color: var(--amber); color: var(--amber); }
 
 /* ─── Helpers ────────────────────────────────────────────────────────────── */
 .mono { font-family: var(--font-mono); }
