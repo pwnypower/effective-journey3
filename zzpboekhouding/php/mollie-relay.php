@@ -8,9 +8,17 @@
 
 define('STORAGE_FILE', __DIR__ . '/mollie-updates.json');
 
-// IP-check tijdelijk uitgeschakeld voor testen
-// Zet dit terug aan na succesvolle test door de IP-reeksen van Mollie toe te voegen
-// $remote = $_SERVER['REMOTE_ADDR'] ?? '';
+// Alleen Mollie's servers mogen dit aanroepen
+$mollie_ips = ['87.233.217.', '205.201.128.', '185.93.116.', '213.249.', '34.76.', '35.241.'];
+$remote = $_SERVER['REMOTE_ADDR'] ?? '';
+$toegestaan = false;
+foreach ($mollie_ips as $prefix) {
+    if (strncmp($remote, $prefix, strlen($prefix)) === 0) { $toegestaan = true; break; }
+}
+if (!$toegestaan) {
+    http_response_code(403);
+    exit('Forbidden');
+}
 
 // Mollie stuurt: POST id=tr_xxxxxx
 $id = $_POST['id'] ?? '';
@@ -31,7 +39,7 @@ $updates[] = [
     'claimed'    => false,
 ];
 
-file_put_contents(STORAGE_FILE, json_encode($updates, JSON_PRETTY_PRINT));
+file_put_contents(STORAGE_FILE, json_encode($updates, JSON_PRETTY_PRINT), LOCK_EX);
 
 http_response_code(200);
 echo 'OK';

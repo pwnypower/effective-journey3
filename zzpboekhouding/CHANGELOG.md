@@ -1,5 +1,32 @@
 # Changelog
 
+## 2.1.11
+- Beveiliging mollie-relay.php: IP-whitelist hersteld met Mollie's volledige IP-reeksen (incl. 34.76.x.x)
+- .htaccess toegevoegd: blokkeert directe browser-toegang tot mollie-updates.json en mollie-debug.log
+- Debug-logging verwijderd uit relay na succesvolle test
+
+## 2.1.10
+- Fix: str_starts_with vervangen door strpos voor PHP 7.x compatibiliteit in mollie-relay.php
+- (Teruggedraaid na upgrade naar PHP 8.0 op it-bosch.nl)
+
+## 2.1.9
+- RESET LINK knop toegevoegd op factuurpagina: wist bestaande betaallink zodat nieuwe aangemaakt kan worden met correcte webhook-URL
+- Fix: betaallinks aangemaakt zonder webhook-URL konden niet worden bijgewerkt
+
+## 2.1.8
+- User-Agent header verbeterd voor polls naar it-bosch.nl (minder kans op blokkering)
+
+## 2.1.7
+- Toast-meldingen altijd zichtbaar: fallback naar amber als categorie ontbreekt
+- Toast-categorieën uitgebreid: info, warning, error toegevoegd
+
+## 2.1.6
+- CHECK BETALING toont nu exacte foutmelding: verbindingsfout, HTTP-code, of succesbericht met aantal bijgewerkte facturen
+- Polling-functie geeft statusbericht terug in plaats van stil te falen
+
+## 2.1.5
+- Fix: CHECK BETALING toont rode melding als Poll URL of token niet ingesteld is
+
 ## 2.1.0
 - Mollie instellingen volledig uitgebreid: relay URL, bevestigings-URL, poll URL en token
 - Redirect na betaling stuurt klant naar it-bosch.nl/betaald/ met nr, klant en bedrag in URL

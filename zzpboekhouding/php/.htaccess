@@ -1,0 +1,5 @@
+# Blokkeer directe toegang tot databestanden
+<FilesMatch "\.(json|log)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>

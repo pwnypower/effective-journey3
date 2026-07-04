@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:'Segoe UI',Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:40px 0">
+<tr><td align="center">
+<table width="580" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:4px;overflow:hidden">
+
+  <!-- Header -->
+  <tr><td style="background:#111111;padding:28px 36px">
+    <span style="font-size:20px;font-weight:700;color:#f0a500;font-family:monospace;letter-spacing:0.05em">
+      {{ settings.bedrijfsnaam }}
+    </span>
+  </td></tr>
+
+  <!-- Intro -->
+  <tr><td style="padding:32px 36px 0">
+    <div style="font-size:22px;font-weight:700;color:#111;margin-bottom:8px">Nieuwe factuur</div>
+    <div style="color:#666;font-size:14px;line-height:1.6">
+      Beste {{ factuur.klant_naam }},<br><br>
+      Hierbij ontvangt u factuur <strong>{{ factuur.factuurnummer }}</strong>.
+      Wij verzoeken u het bedrag voor <strong>{{ factuur.vervaldatum }}</strong> te voldoen.
+    </div>
+  </td></tr>
+
+  <!-- Factuurinfo -->
+  <tr><td style="padding:24px 36px 0">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9f9f9;border-radius:4px">
+      <tr>
+        <td style="padding:12px 16px;font-size:12px;color:#888;letter-spacing:0.06em;font-family:monospace">FACTUURNUMMER</td>
+        <td style="padding:12px 16px;font-size:13px;font-weight:600;font-family:monospace;color:#f0a500">{{ factuur.factuurnummer }}</td>
+      </tr>
+      <tr style="border-top:1px solid #eeeeee">
+        <td style="padding:12px 16px;font-size:12px;color:#888;letter-spacing:0.06em;font-family:monospace">FACTUURDATUM</td>
+        <td style="padding:12px 16px;font-size:13px;font-family:monospace">{{ factuur.factuurdatum }}</td>
+      </tr>
+      <tr style="border-top:1px solid #eeeeee">
+        <td style="padding:12px 16px;font-size:12px;color:#888;letter-spacing:0.06em;font-family:monospace">VERVALDATUM</td>
+        <td style="padding:12px 16px;font-size:13px;font-family:monospace">{{ factuur.vervaldatum }}</td>
+      </tr>
+    </table>
+  </td></tr>
+
+  <!-- Regeloverzicht -->
+  <tr><td style="padding:24px 36px 0">
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <thead>
+        <tr style="background:#111">
+          <th style="padding:10px 12px;text-align:left;font-size:11px;color:#f0a500;font-family:monospace;letter-spacing:0.06em;font-weight:600">OMSCHRIJVING</th>
+          <th style="padding:10px 12px;text-align:right;font-size:11px;color:#f0a500;font-family:monospace;letter-spacing:0.06em;font-weight:600">AANTAL</th>
+          <th style="padding:10px 12px;text-align:right;font-size:11px;color:#f0a500;font-family:monospace;letter-spacing:0.06em;font-weight:600">PRIJS</th>
+          <th style="padding:10px 12px;text-align:right;font-size:11px;color:#f0a500;font-family:monospace;letter-spacing:0.06em;font-weight:600">BEDRAG</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in regels %}
+        <tr>
+          <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;font-size:13px">{{ r.omschrijving }}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:right;font-family:monospace;font-size:12px">{{ r.aantal|int if r.aantal == r.aantal|int else r.aantal }} {{ r.eenheid or 'st' }}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:right;font-family:monospace;font-size:12px">€ {{ "%.2f"|format(r.prijs_per_stuk) }}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:right;font-family:monospace;font-size:12px">€ {{ "%.2f"|format(r.aantal * r.prijs_per_stuk) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </td></tr>
+
+  <!-- Totalen -->
+  <tr><td style="padding:0 36px 0">
+    <table width="100%" cellpadding="0" cellspacing="0" style="border-top:2px solid #f0a500">
+      <tr>
+        <td style="padding:10px 12px;font-size:13px;color:#666">Subtotaal excl. BTW</td>
+        <td style="padding:10px 12px;text-align:right;font-family:monospace;font-size:13px">€ {{ "%.2f"|format(bek.subtotaal) }}</td>
+      </tr>
+      <tr>
+        <td style="padding:10px 12px;font-size:13px;color:#666">BTW</td>
+        <td style="padding:10px 12px;text-align:right;font-family:monospace;font-size:13px">€ {{ "%.2f"|format(bek.btw_totaal) }}</td>
+      </tr>
+      <tr style="background:#f9f9f9">
+        <td style="padding:14px 12px;font-size:16px;font-weight:700">Totaal incl. BTW</td>
+        <td style="padding:14px 12px;text-align:right;font-family:monospace;font-size:16px;font-weight:700;color:#f0a500">€ {{ "%.2f"|format(bek.totaal) }}</td>
+      </tr>
+    </table>
+  </td></tr>
+
+  <!-- Betaalknop -->
+  {% if betaallink %}
+  <tr><td style="padding:28px 36px;text-align:center">
+    <a href="{{ betaallink }}"
+       style="display:inline-block;background:#f0a500;color:#111;font-family:monospace;font-weight:700;font-size:13px;letter-spacing:0.06em;padding:14px 32px;border-radius:3px;text-decoration:none">
+      DIRECT ONLINE BETALEN
+    </a>
+  </td></tr>
+  {% endif %}
+
+  <!-- IBAN fallback -->
+  {% if settings.iban %}
+  <tr><td style="padding:0 36px 16px;text-align:center">
+    <div style="font-size:12px;color:#aaa">Of maak over op <span style="font-family:monospace;color:#666">{{ settings.iban }}</span> o.v.v. {{ factuur.factuurnummer }}</div>
+  </td></tr>
+  {% endif %}
+
+  <!-- Footer -->
+  <tr><td style="padding:24px 36px;border-top:1px solid #eeeeee">
+    <div style="font-size:12px;color:#aaa;line-height:1.8">
+      Met vriendelijke groet,<br>
+      <strong style="color:#666">{{ settings.bedrijfsnaam }}</strong><br>
+      {% if settings.kvk %}KvK: {{ settings.kvk }}<br>{% endif %}
+      {% if settings.btwnummer %}BTW: {{ settings.btwnummer }}<br>{% endif %}
+    </div>
+  </td></tr>
+
+</table>
+</td></tr></table>
+</body></html>

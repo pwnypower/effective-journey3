@@ -373,7 +373,10 @@ def maak_mollie_payment(factuur_id, totaal, factuurnummer):
 
     from mollie.api.client import Client
     mc = Client()
-    mc.set_api_key(key)
+    if key.startswith("access_"):
+        mc.set_access_token(key)
+    else:
+        mc.set_api_key(key)
     p = mc.payments.create({
         "amount": {"currency": "EUR", "value": f"{totaal:.2f}"},
         "description": f"Factuur {factuurnummer}",
@@ -1028,17 +1031,9 @@ def factuur_versturen(fid):
             betaallink = maak_mollie_payment(fid, bek["totaal"], factuur["factuurnummer"])
         except Exception:
             betaallink = None
-    regels_html = "".join(
-        f"<tr><td>{r['omschrijving']}</td><td>{r['aantal']} {r.get('eenheid','st')}</td><td>&euro; {r['prijs_per_stuk']:.2f}</td><td>&euro; {r['aantal']*r['prijs_per_stuk']:.2f}</td></tr>"
-        for r in regels
-    )
-    betaal_html = f"<p><a href='{betaallink}'>Klik hier om direct online te betalen</a></p>" if betaallink else ""
-    bedrijf = s.get("bedrijfsnaam", "")
-    html = f"""<p>Beste {factuur['klant_naam']},</p>
-<p>Hierbij ontvangt u factuur <strong>{factuur['factuurnummer']}</strong> van {bedrijf}, vervaldatum {factuur['vervaldatum']}.</p>
-<table border="1" cellpadding="6" cellspacing="0"><tr><th>Omschrijving</th><th>Aantal</th><th>Prijs</th><th>Bedrag</th></tr>{regels_html}</table>
-<p>Subtotaal: &euro; {bek['subtotaal']:.2f}<br>BTW: &euro; {bek['btw_totaal']:.2f}<br><strong>Totaal: &euro; {bek['totaal']:.2f}</strong></p>
-{betaal_html}<p>Met vriendelijke groet,<br>{bedrijf}</p>"""
+    html = render_template("mail_factuur.html",
+        factuur=factuur, regels=regels, bek=bek,
+        settings=s, betaallink=betaallink)
     try:
         verstuur_email(factuur["klant_email"], f"Factuur {factuur['factuurnummer']}", html)
         db.execute("UPDATE facturen SET status='verzonden' WHERE id=? AND status='concept'", (fid,))
@@ -1057,7 +1052,10 @@ def mollie_webhook():
         return "", 400
     from mollie.api.client import Client
     mc = Client()
-    mc.set_api_key(key)
+    if key.startswith("access_"):
+        mc.set_access_token(key)
+    else:
+        mc.set_api_key(key)
     try:
         p = mc.payments.get(payment_id)
     except Exception:
@@ -1493,101 +1491,14 @@ def _stuur_betaalbevestiging(factuur_id: int):
         subtotaal = sum(r["aantal"] * r["prijs_per_stuk"] for r in regels)
         btw = totaal - subtotaal
 
-        regels_html = "".join(
-            f"""<tr>
-                  <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0">{r['omschrijving']}</td>
-                  <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:right">{r['aantal']:g} {r['eenheid']}</td>
-                  <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:right;font-family:monospace">€ {r['aantal']*r['prijs_per_stuk']:.2f}</td>
-                </tr>"""
-            for r in regels
+        html = render_template("mail_betaalbevestiging.html",
+            klant_naam=row["naam"],
+            factuurnummer=row["factuurnummer"],
+            factuurdatum=row["factuurdatum"],
+            regels=regels,
+            subtotaal=subtotaal, btw=btw, totaal=totaal,
+            settings=s,
         )
-
-        html = f"""<!DOCTYPE html>
-<html lang="nl">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f5f5f5;font-family:'Segoe UI',Arial,sans-serif">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:40px 0">
-<tr><td align="center">
-<table width="580" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:4px;overflow:hidden">
-
-  <!-- Header -->
-  <tr><td style="background:#111111;padding:28px 36px">
-    <span style="font-size:20px;font-weight:700;color:#f0a500;font-family:monospace;letter-spacing:0.05em">
-      {s.get('bedrijfsnaam','Mijn Bedrijf')}
-    </span>
-  </td></tr>
-
-  <!-- Titel -->
-  <tr><td style="padding:32px 36px 0">
-    <div style="font-size:22px;font-weight:700;color:#111;margin-bottom:8px">Betaling ontvangen</div>
-    <div style="color:#666;font-size:14px;line-height:1.6">
-      Beste {row['naam']},<br><br>
-      Wij hebben uw betaling in goede orde ontvangen. Hieronder vindt u een overzicht.
-    </div>
-  </td></tr>
-
-  <!-- Factuurinfo -->
-  <tr><td style="padding:24px 36px 0">
-    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9f9f9;border-radius:4px">
-      <tr>
-        <td style="padding:12px 16px;font-size:12px;color:#888;letter-spacing:0.06em;font-family:monospace">FACTUURNUMMER</td>
-        <td style="padding:12px 16px;font-size:13px;font-weight:600;font-family:monospace;color:#f0a500">{row['factuurnummer']}</td>
-      </tr>
-      <tr style="border-top:1px solid #eeeeee">
-        <td style="padding:12px 16px;font-size:12px;color:#888;letter-spacing:0.06em;font-family:monospace">FACTUURDATUM</td>
-        <td style="padding:12px 16px;font-size:13px;font-family:monospace">{row['factuurdatum']}</td>
-      </tr>
-      <tr style="border-top:1px solid #eeeeee">
-        <td style="padding:12px 16px;font-size:12px;color:#888;letter-spacing:0.06em;font-family:monospace">STATUS</td>
-        <td style="padding:12px 16px"><span style="background:#e8f5e9;color:#2e7d32;font-size:11px;font-family:monospace;padding:3px 8px;border-radius:2px">BETAALD</span></td>
-      </tr>
-    </table>
-  </td></tr>
-
-  <!-- Regeloverzicht -->
-  <tr><td style="padding:24px 36px 0">
-    <table width="100%" cellpadding="0" cellspacing="0">
-      <thead>
-        <tr style="background:#111">
-          <th style="padding:10px 12px;text-align:left;font-size:11px;color:#f0a500;font-family:monospace;letter-spacing:0.06em;font-weight:600">OMSCHRIJVING</th>
-          <th style="padding:10px 12px;text-align:right;font-size:11px;color:#f0a500;font-family:monospace;letter-spacing:0.06em;font-weight:600">AANTAL</th>
-          <th style="padding:10px 12px;text-align:right;font-size:11px;color:#f0a500;font-family:monospace;letter-spacing:0.06em;font-weight:600">BEDRAG</th>
-        </tr>
-      </thead>
-      <tbody>{regels_html}</tbody>
-    </table>
-  </td></tr>
-
-  <!-- Totalen -->
-  <tr><td style="padding:0 36px 0">
-    <table width="100%" cellpadding="0" cellspacing="0" style="border-top:2px solid #f0a500;margin-top:0">
-      <tr>
-        <td style="padding:10px 12px;font-size:13px;color:#666">Subtotaal excl. BTW</td>
-        <td style="padding:10px 12px;text-align:right;font-family:monospace;font-size:13px">€ {subtotaal:.2f}</td>
-      </tr>
-      <tr>
-        <td style="padding:10px 12px;font-size:13px;color:#666">BTW</td>
-        <td style="padding:10px 12px;text-align:right;font-family:monospace;font-size:13px">€ {btw:.2f}</td>
-      </tr>
-      <tr style="background:#f9f9f9">
-        <td style="padding:14px 12px;font-size:16px;font-weight:700">Totaal betaald</td>
-        <td style="padding:14px 12px;text-align:right;font-family:monospace;font-size:16px;font-weight:700;color:#f0a500">€ {totaal:.2f}</td>
-      </tr>
-    </table>
-  </td></tr>
-
-  <!-- Footer -->
-  <tr><td style="padding:32px 36px;border-top:1px solid #eeeeee;margin-top:24px">
-    <div style="font-size:12px;color:#aaa;line-height:1.8">
-      {s.get('bedrijfsnaam','')} {'• KvK: ' + s.get('kvk','') if s.get('kvk') else ''}
-      {'• BTW: ' + s.get('btwnummer','') if s.get('btwnummer') else ''}<br>
-      {'IBAN: ' + s.get('iban','') if s.get('iban') else ''}
-    </div>
-  </td></tr>
-
-</table>
-</td></tr></table>
-</body></html>"""
 
         msg = MIMEMultipart("alternative")
         msg["Subject"] = f"Betaalbevestiging {row['factuurnummer']} — {s.get('bedrijfsnaam','')}"
