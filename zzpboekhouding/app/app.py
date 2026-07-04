@@ -1572,6 +1572,23 @@ def _stuur_betaalbevestiging(factuur_id: int):
         pass
 
 
+def _verifieer_mollie_betaling(payment_id: str) -> bool:
+    """Verifieert rechtstreeks bij Mollie of een betaling echt 'paid' is."""
+    try:
+        key = _mollie_key()
+        if not key:
+            return False
+        req = urllib.request.Request(
+            f"https://api.mollie.com/v2/payments/{urllib.parse.quote(payment_id)}",
+            headers={"Authorization": f"Bearer {key}", "User-Agent": "ZZP-Boekhouding/2"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = _json.loads(resp.read().decode())
+        return data.get("status") == "paid"
+    except Exception:
+        return False
+
+
 def _poll_mollie_status():
     with app.app_context():
         try:
@@ -1589,8 +1606,10 @@ def _poll_mollie_status():
             db = get_db()
             for upd in updates:
                 pid = upd.get("payment_id", "")
-                status = upd.get("status", "")
-                if not pid or status != "paid":
+                if not pid:
+                    continue
+                # Verifieer ALTIJD rechtstreeks bij Mollie — vertrouw nooit blind op de relay
+                if not _verifieer_mollie_betaling(pid):
                     continue
                 row = db.execute("SELECT id FROM facturen WHERE mollie_payment_id=?", (pid,)).fetchone()
                 if row:

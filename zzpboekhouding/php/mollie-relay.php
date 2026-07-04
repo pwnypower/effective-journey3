@@ -8,6 +8,19 @@
 define('MOLLIE_API_KEY', 'JOUW_MOLLIE_API_KEY');   // live_xxx of test_xxx
 define('STORAGE_FILE',   __DIR__ . '/mollie-updates.json');
 
+// Alleen Mollie's eigen IP-reeksen mogen dit script aanroepen
+$mollie_ips = ['87.233.217.', '205.201.128.', '185.93.116.', '213.249.'];
+$remote = $_SERVER['REMOTE_ADDR'] ?? '';
+$toegestaan = false;
+foreach ($mollie_ips as $prefix) {
+    if (str_starts_with($remote, $prefix)) { $toegestaan = true; break; }
+}
+// Sta ook localhost toe voor testen
+if (!$toegestaan && !in_array($remote, ['127.0.0.1', '::1'])) {
+    http_response_code(403);
+    exit('Forbidden');
+}
+
 // Mollie stuurt: POST id=tr_xxxxxx
 $id = $_POST['id'] ?? '';
 if (!$id) {
