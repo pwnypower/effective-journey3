@@ -1265,17 +1265,21 @@ def periodiek_nieuw():
         # Main regel from bedrag_excl_btw
         bedrag = float(request.form.get("bedrag_excl_btw") or 0)
         btw = float(request.form.get("btw_percentage") or 21)
-        db.execute("INSERT INTO periodieke_regels (periodiek_id,omschrijving,aantal,eenheid,prijs_per_stuk,btw_percentage) VALUES (?,?,?,?,?,?)",
-                   (pid, omschr, 1, "st", bedrag, btw))
+        pv = request.form.get("periode_van") or None
+        pt = request.form.get("periode_tot") or None
+        db.execute("INSERT INTO periodieke_regels (periodiek_id,omschrijving,aantal,eenheid,prijs_per_stuk,btw_percentage,periode_van,periode_tot) VALUES (?,?,?,?,?,?,?,?)",
+                   (pid, omschr, 1, "st", bedrag, btw, pv, pt))
         # Extra regels
-        for ro, ra, rp, rb, re in zip(
+        for ro, ra, rp, rb, re, rpv, rpt in zip(
             request.form.getlist("regel_omschrijving"), request.form.getlist("regel_aantal"),
             request.form.getlist("regel_prijs"), request.form.getlist("regel_btw"),
             request.form.getlist("regel_eenheid"),
+            request.form.getlist("regel_periode_van"),
+            request.form.getlist("regel_periode_tot"),
         ):
             if ro.strip():
-                db.execute("INSERT INTO periodieke_regels (periodiek_id,omschrijving,aantal,eenheid,prijs_per_stuk,btw_percentage) VALUES (?,?,?,?,?,?)",
-                           (pid, ro, float(ra or 1), re or "st", float(rp or 0), float(rb or 21)))
+                db.execute("INSERT INTO periodieke_regels (periodiek_id,omschrijving,aantal,eenheid,prijs_per_stuk,btw_percentage,periode_van,periode_tot) VALUES (?,?,?,?,?,?,?,?)",
+                           (pid, ro, float(ra or 1), re or "st", float(rp or 0), float(rb or 21), rpv or None, rpt or None))
         db.commit()
         flash("Periodieke factuur aangemaakt.", "success")
         return redirect(url_for("periodieke_facturen"))
@@ -1297,16 +1301,20 @@ def periodiek_bewerken(pid):
         db.execute("DELETE FROM periodieke_regels WHERE periodiek_id=?", (pid,))
         bedrag = float(request.form.get("bedrag_excl_btw") or 0)
         btw = float(request.form.get("btw_percentage") or 21)
-        db.execute("INSERT INTO periodieke_regels (periodiek_id,omschrijving,aantal,eenheid,prijs_per_stuk,btw_percentage) VALUES (?,?,?,?,?,?)",
-                   (pid, omschr, 1, "st", bedrag, btw))
-        for ro, ra, rp, rb, re in zip(
+        pv = request.form.get("periode_van") or None
+        pt = request.form.get("periode_tot") or None
+        db.execute("INSERT INTO periodieke_regels (periodiek_id,omschrijving,aantal,eenheid,prijs_per_stuk,btw_percentage,periode_van,periode_tot) VALUES (?,?,?,?,?,?,?,?)",
+                   (pid, omschr, 1, "st", bedrag, btw, pv, pt))
+        for ro, ra, rp, rb, re, rpv, rpt in zip(
             request.form.getlist("regel_omschrijving"), request.form.getlist("regel_aantal"),
             request.form.getlist("regel_prijs"), request.form.getlist("regel_btw"),
             request.form.getlist("regel_eenheid"),
+            request.form.getlist("regel_periode_van"),
+            request.form.getlist("regel_periode_tot"),
         ):
             if ro.strip():
-                db.execute("INSERT INTO periodieke_regels (periodiek_id,omschrijving,aantal,eenheid,prijs_per_stuk,btw_percentage) VALUES (?,?,?,?,?,?)",
-                           (pid, ro, float(ra or 1), re or "st", float(rp or 0), float(rb or 21)))
+                db.execute("INSERT INTO periodieke_regels (periodiek_id,omschrijving,aantal,eenheid,prijs_per_stuk,btw_percentage,periode_van,periode_tot) VALUES (?,?,?,?,?,?,?,?)",
+                           (pid, ro, float(ra or 1), re or "st", float(rp or 0), float(rb or 21), rpv or None, rpt or None))
         db.commit()
         flash("Periodieke factuur bijgewerkt.", "success")
         return redirect(url_for("periodieke_facturen"))
