@@ -113,18 +113,48 @@
   <div class="tab-panel" id="tab-mollie">
     <div class="panel" style="max-width:680px">
       <div class="panel-title">MOLLIE BETALINGEN</div>
-      <div class="info-banner" style="margin-bottom:16px">Mollie API-sleutel staat nooit in de database. Stel hem in via de Home Assistant add-on configuratie of de omgevingsvariabele <code>MOLLIE_API_KEY</code>.</div>
+      <div class="info-banner" style="margin-bottom:16px">Mollie API-sleutels worden opgeslagen in de database. Gebruik <strong>test_</strong> sleutels om te testen en <strong>live_</strong> voor echte betalingen.</div>
       <div class="fg fg2">
         <div class="field">
-          <label>MOLLIE ACTIEF</label>
-          <select name="mollie_actief">
-            <option value="0" {{ 'selected' if not s.mollie_actief }}>Uitgeschakeld</option>
-            <option value="1" {{ 'selected' if s.mollie_actief }}>Ingeschakeld</option>
+          <label>MODUS</label>
+          <select name="mollie_mode">
+            <option value="test" {{ 'selected' if s.get('mollie_mode','test') == 'test' }}>Test</option>
+            <option value="live" {{ 'selected' if s.get('mollie_mode') == 'live' }}>Live</option>
           </select>
         </div>
         <div class="field">
-          <label>BASIS-URL (voor redirect/webhook)</label>
-          <input type="text" name="mollie_base_url" value="{{ s.mollie_base_url or '' }}" placeholder="https://mijn-domein.nl">
+          <label>TEST API-SLEUTEL</label>
+          <input type="text" name="mollie_key_test" value="{{ s.get('mollie_key_test','') }}" placeholder="test_xxxxxxxxxxxxxx">
+        </div>
+        <div class="field" style="grid-column:span 2">
+          <label>LIVE API-SLEUTEL</label>
+          <input type="text" name="mollie_key_live" value="{{ s.get('mollie_key_live','') }}" placeholder="live_xxxxxxxxxxxxxx">
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="max-width:680px;margin-top:20px">
+      <div class="panel-title">MOLLIE WEBHOOK & BEVESTIGING</div>
+      <div class="info-banner" style="margin-bottom:16px">
+        De <strong>relay URL</strong> is het PHP-script op it-bosch.nl dat Mollie aanroept na betaling.<br>
+        De <strong>bevestigings-URL</strong> is de pagina op it-bosch.nl waar de klant naartoe wordt gestuurd na betaling.
+      </div>
+      <div class="fg fg2">
+        <div class="field" style="grid-column:span 2">
+          <label>WEBHOOK RELAY URL (it-bosch.nl)</label>
+          <input type="text" name="mollie_relay_url" value="{{ s.get('mollie_relay_url','') }}" placeholder="https://it-bosch.nl/mollie-relay.php">
+        </div>
+        <div class="field" style="grid-column:span 2">
+          <label>BEVESTIGINGSPAGINA URL (klant redirect)</label>
+          <input type="text" name="mollie_bevestiging_url" value="{{ s.get('mollie_bevestiging_url','') }}" placeholder="https://it-bosch.nl/betaald/">
+        </div>
+        <div class="field" style="grid-column:span 2">
+          <label>POLL URL (mollie-status.php)</label>
+          <input type="text" name="mollie_poll_url" value="{{ s.get('mollie_poll_url','') }}" placeholder="https://it-bosch.nl/mollie-status.php">
+        </div>
+        <div class="field" style="grid-column:span 2">
+          <label>POLL TOKEN (geheime sleutel)</label>
+          <input type="text" name="mollie_poll_token" value="{{ s.get('mollie_poll_token','') }}" placeholder="lang-willekeurig-token">
         </div>
       </div>
     </div>

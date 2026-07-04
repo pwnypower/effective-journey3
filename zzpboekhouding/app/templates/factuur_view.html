@@ -10,7 +10,7 @@
 
 <!-- Actions -->
 <div class="actions np">
-  <form method="POST" action="{{ url_for('factuur_status', fid=factuur.factuur_id) }}" style="display:flex;gap:8px;align-items:center">
+  <form method="POST" action="{{ url_for('factuur_status', fid=factuur.factuur_id) }}" style="display:contents">
     <select name="status" class="inp-select">
       {% for s in ['concept','open','verzonden','betaald','vervallen'] %}
       <option value="{{ s }}" {{ 'selected' if factuur.status == s }}>{{ s|upper }}</option>
@@ -20,25 +20,25 @@
   </form>
 
   {% if smtp_actief %}
-  <form method="POST" action="{{ url_for('factuur_versturen', fid=factuur.factuur_id) }}">
+  <form method="POST" action="{{ url_for('factuur_versturen', fid=factuur.factuur_id) }}" style="display:contents">
     <button type="submit" class="btn" onclick="return confirm('Factuur versturen naar {{ factuur.klant_email }}?')">✉ VERSTUREN</button>
   </form>
   {% else %}
-  <a href="{{ url_for('instellingen') }}#smtp" class="btn" title="SMTP instellen om te kunnen versturen" style="opacity:0.45;cursor:not-allowed" onclick="return false">✉ VERSTUREN</a>
+  <button class="btn" disabled title="SMTP instellen in instellingen om te kunnen versturen" style="opacity:0.4;cursor:not-allowed">✉ VERSTUREN</button>
   {% endif %}
 
   {% if mollie_actief %}
-  <form method="POST" action="{{ url_for('factuur_mollie_betaallink', fid=factuur.factuur_id) }}">
+  <form method="POST" action="{{ url_for('factuur_mollie_betaallink', fid=factuur.factuur_id) }}" style="display:contents">
     <button type="submit" class="btn-sec">⬡ MOLLIE BETAALLINK</button>
   </form>
   {% endif %}
 
   {% if factuur.betaallink %}
-  <a href="{{ factuur.betaallink }}" target="_blank" class="btn-sec">↗ OPEN BETAALLINK</a>
+  <a href="{{ factuur.betaallink }}" target="_blank" class="btn-sec">↗ BETAALLINK</a>
   {% endif %}
 
   <form method="POST" action="{{ url_for('factuur_verwijderen', fid=factuur.factuur_id) }}"
-        onsubmit="return confirm('Factuur {{ factuur.factuurnummer }} definitief verwijderen?')">
+        onsubmit="return confirm('Factuur {{ factuur.factuurnummer }} definitief verwijderen?')" style="display:contents">
     <button type="submit" class="btn-danger">✕ VERWIJDEREN</button>
   </form>
 </div>

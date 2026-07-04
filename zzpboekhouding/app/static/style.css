@@ -199,7 +199,7 @@ html, body { height: 100%; font-family: var(--font-body); font-size: 14px; backg
 .btn-ghost { background: transparent; color: var(--muted); border: none; }
 .btn-ghost:hover { color: var(--text); }
 .btn-icon { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 3px 7px; transition: color 0.15s; }
-.inp-select { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 7px 10px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; cursor: pointer; }
+.inp-select { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 9px 10px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; cursor: pointer; height: 36px; box-sizing: border-box; }
 .btn-icon:hover { color: var(--amber); }
 .btn-icon.d:hover { color: var(--red); }
 
@@ -246,6 +246,12 @@ html, body { height: 100%; font-family: var(--font-body); font-size: 14px; backg
 .regel-periode input[type=date] { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 5px 8px; font-family: var(--font-mono); font-size: 11px; }
 .regel-periode input[type=date]:focus { border-color: var(--amber); outline: none; }
 .periode-badge { font-family: var(--font-mono); font-size: 10px; color: var(--amber); margin-top: 2px; }
+
+/* ─── BTW Wizard ─────────────────────────────────────────────────────────── */
+.wizard-stap { display: flex; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.wizard-stap-nr { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--amber); background: rgba(240,165,0,0.1); border: 1px solid var(--amber); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.wizard-stap-body { flex: 1; }
+.wizard-stap-titel { font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: var(--text); margin-bottom: 4px; }
 
 /* ─── Totals box ─────────────────────────────────────────────────────────── */
 .totals-box { padding-top: 12px; }

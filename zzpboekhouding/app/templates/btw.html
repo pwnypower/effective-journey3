@@ -3,7 +3,7 @@
 {% block topbar_title %}BTW-OVERZICHT {{ jaar }}{% endblock %}
 {% block topbar_extra %}
   <form method="GET" style="display:flex;gap:8px;align-items:center">
-    <input type="number" name="jaar" value="{{ jaar }}" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:7px 10px;font-family:var(--font-mono);font-size:10px;width:80px">
+    <input type="number" name="jaar" value="{{ jaar }}" class="inp-select" style="width:80px">
     <button type="submit" class="btn-sec">TONEN</button>
   </form>
 {% endblock %}
@@ -18,6 +18,7 @@
       <th>BTW VERSCHULDIGD</th>
       <th>VOORBELASTING</th>
       <th>TE BETALEN / TERUG</th>
+      <th style="width:120px"></th>
     </tr>
   </thead>
   <tbody>
@@ -31,6 +32,99 @@
       <td class="mono" style="font-weight:600;color:{{ 'var(--red)' if k.btw_te_betalen > 0 else 'var(--green)' }}">
         {% if k.btw_te_betalen <= 0 %}TERUG: {% endif %}€ {{ "%.2f"|format(k.btw_te_betalen|abs) }}
       </td>
+      <td>
+        <button type="button" class="btn-sec" style="font-size:9px;padding:6px 12px" onclick="toggleWizard({{ k.kwartaal }})">
+          AANGIFTE WIZARD
+        </button>
+      </td>
+    </tr>
+    <!-- Wizard uitklap -->
+    <tr id="wizard-{{ k.kwartaal }}" style="display:none">
+      <td colspan="7" style="padding:0;border-top:2px solid var(--amber)">
+        <div style="padding:24px;background:var(--panel)">
+          <div style="font-family:var(--font-mono);font-size:11px;font-weight:700;letter-spacing:0.08em;color:var(--amber);margin-bottom:20px">
+            BTW-AANGIFTE WIZARD — Q{{ k.kwartaal }} {{ jaar }}
+          </div>
+
+          <!-- Stap 1: Omzet -->
+          <div class="wizard-stap">
+            <div class="wizard-stap-nr">1</div>
+            <div class="wizard-stap-body">
+              <div class="wizard-stap-titel">OMZET EN VERSCHULDIGDE BTW</div>
+              <p style="color:var(--muted);font-size:12px;margin:6px 0 16px">Vul in bij de belastingdienst onder <strong>Rubriek 1a</strong> (leveringen/diensten belast met 21%) en <strong>1b</strong> (9%).</p>
+              <div class="fg fg2" style="gap:12px">
+                <div style="background:var(--bg);border:1px solid var(--border);padding:14px 18px">
+                  <div style="font-size:10px;color:var(--muted);letter-spacing:0.06em;margin-bottom:4px">1A — OMZET 21%</div>
+                  <div style="font-family:var(--font-mono);font-size:15px;font-weight:700">€ {{ "%.2f"|format(k.omzet_excl) }}</div>
+                  <div style="font-size:10px;color:var(--muted);margin-top:2px">BTW: € {{ "%.2f"|format(k.btw_verschuldigd) }}</div>
+                </div>
+                <div style="background:var(--bg);border:1px solid var(--border);padding:14px 18px">
+                  <div style="font-size:10px;color:var(--muted);letter-spacing:0.06em;margin-bottom:4px">1B — OMZET 9%</div>
+                  <div style="font-family:var(--font-mono);font-size:15px;font-weight:700">€ 0,00</div>
+                  <div style="font-size:10px;color:var(--muted);margin-top:2px">BTW: € 0,00</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Stap 2: Voorbelasting -->
+          <div class="wizard-stap">
+            <div class="wizard-stap-nr">2</div>
+            <div class="wizard-stap-body">
+              <div class="wizard-stap-titel">VOORBELASTING (RUBRIEK 5B)</div>
+              <p style="color:var(--muted);font-size:12px;margin:6px 0 16px">De BTW die je zelf hebt betaald op zakelijke uitgaven. Vul dit in bij <strong>Rubriek 5b</strong>.</p>
+              <div style="background:var(--bg);border:1px solid var(--border);padding:14px 18px;display:inline-block;min-width:220px">
+                <div style="font-size:10px;color:var(--muted);letter-spacing:0.06em;margin-bottom:4px">5B — VOORBELASTING</div>
+                <div style="font-family:var(--font-mono);font-size:15px;font-weight:700">€ {{ "%.2f"|format(k.btw_voorbelasting) }}</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:2px">Op basis van {{ "%.2f"|format(k.kosten_excl) }} zakelijke kosten</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Stap 3: Saldo -->
+          <div class="wizard-stap">
+            <div class="wizard-stap-nr">3</div>
+            <div class="wizard-stap-body">
+              <div class="wizard-stap-titel">SALDO — TE BETALEN OF TERUG</div>
+              <p style="color:var(--muted);font-size:12px;margin:6px 0 16px">Rubriek 5a (verschuldigd) min 5b (voorbelasting) = wat je betaalt of terugkrijgt.</p>
+              <div style="background:var(--bg);border:2px solid {{ 'var(--red)' if k.btw_te_betalen > 0 else 'var(--green)' }};padding:16px 20px;display:inline-block;min-width:220px">
+                <div style="font-size:10px;letter-spacing:0.06em;margin-bottom:4px;color:{{ 'var(--red)' if k.btw_te_betalen > 0 else 'var(--green)' }}">
+                  {{ 'TE BETALEN' if k.btw_te_betalen > 0 else 'TERUG TE ONTVANGEN' }}
+                </div>
+                <div style="font-family:var(--font-mono);font-size:20px;font-weight:700;color:{{ 'var(--red)' if k.btw_te_betalen > 0 else 'var(--green)' }}">
+                  € {{ "%.2f"|format(k.btw_te_betalen|abs) }}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Stap 4: Checklist -->
+          <div class="wizard-stap" style="border-bottom:none;margin-bottom:0;padding-bottom:0">
+            <div class="wizard-stap-nr">✓</div>
+            <div class="wizard-stap-body">
+              <div class="wizard-stap-titel">CHECKLIST VOOR INDIENEN</div>
+              <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px">
+                {% for item in [
+                  'Alle facturen van dit kwartaal staan in het systeem',
+                  'Alle zakelijke uitgaven zijn ingevoerd met correct BTW-bedrag',
+                  'Facturen zijn verstuurd en status bijgewerkt (niet meer concept)',
+                  'Je hebt ingelogd op Mijn Belastingdienst Zakelijk',
+                  'Aangifte ingediend vóór de deadline (laatste dag van de maand na het kwartaal)'
+                ] %}
+                <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:12px">
+                  <input type="checkbox" style="accent-color:var(--amber);width:16px;height:16px">
+                  {{ item }}
+                </label>
+                {% endfor %}
+              </div>
+              <a href="https://www.belastingdienst.nl/wps/wcm/connect/bldcontentnl/belastingdienst/zakelijk/btw/btw_aangifte_doen_en_betalen/" target="_blank" class="btn-sec" style="margin-top:16px;display:inline-flex;font-size:10px">
+                ↗ NAAR BELASTINGDIENST.NL
+              </a>
+            </div>
+          </div>
+
+        </div>
+      </td>
     </tr>
     {% endfor %}
   </tbody>
@@ -40,4 +134,12 @@
   <strong>Let op:</strong> Dit is een indicatie op basis van factuur- en uitgavendatums. Controleer altijd de officiële BTW-aangifte regels (kasstelsel vs. factuurstelsel, KOR, drempelbedragen) via <a href="https://www.belastingdienst.nl" target="_blank" style="color:var(--amber)">belastingdienst.nl</a> of je boekhouder.
 </div>
 
+{% endblock %}
+{% block scripts %}
+<script>
+function toggleWizard(q){
+  const row = document.getElementById('wizard-' + q);
+  row.style.display = row.style.display === 'none' ? '' : 'none';
+}
+</script>
 {% endblock %}
