@@ -55,7 +55,7 @@
       <td class="mono" style="font-size:13px;font-weight:600">€ {{ "%.2f"|format(totalen[f.id]) }}</td>
       <td><span class="badge {{ f.status }}">{{ f.status|upper }}</span></td>
       <td>
-        <a href="{{ url_for('factuur_bekijken', factuur_id=f.id) }}" class="btn-icon" title="Bekijken">⊡</a>
+        <a href="{{ url_for('factuur_bekijken', fid=f.id) }}" class="btn-icon" title="Bekijken">⊡</a>
         <a href="{{ url_for('factuur_bewerken', fid=f.id) }}" class="btn-icon" title="Bewerken">✎</a>
         <form method="POST" action="{{ url_for('factuur_dupliceren', fid=f.id) }}" style="display:inline">
           <button type="submit" class="btn-icon" title="Dupliceren">⊕</button>
