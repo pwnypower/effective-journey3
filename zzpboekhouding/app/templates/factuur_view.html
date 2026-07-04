@@ -11,7 +11,7 @@
 <!-- Actions -->
 <div class="actions np">
   <form method="POST" action="{{ url_for('factuur_status', fid=factuur.factuur_id) }}" style="display:flex;gap:8px;align-items:center">
-    <select name="status" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:7px 10px;font-family:var(--font-mono);font-size:10px">
+    <select name="status" class="inp-select">
       {% for s in ['concept','open','verzonden','betaald','vervallen'] %}
       <option value="{{ s }}" {{ 'selected' if factuur.status == s }}>{{ s|upper }}</option>
       {% endfor %}
@@ -23,6 +23,8 @@
   <form method="POST" action="{{ url_for('factuur_versturen', fid=factuur.factuur_id) }}">
     <button type="submit" class="btn" onclick="return confirm('Factuur versturen naar {{ factuur.klant_email }}?')">✉ VERSTUREN</button>
   </form>
+  {% else %}
+  <a href="{{ url_for('instellingen') }}#smtp" class="btn" title="SMTP instellen om te kunnen versturen" style="opacity:0.45;cursor:not-allowed" onclick="return false">✉ VERSTUREN</a>
   {% endif %}
 
   {% if mollie_actief %}
@@ -32,7 +34,7 @@
   {% endif %}
 
   {% if factuur.betaallink %}
-  <a href="{{ factuur.betaallink }}" target="_blank" class="btn-sec">↗ BETAALLINK</a>
+  <a href="{{ factuur.betaallink }}" target="_blank" class="btn-sec">↗ OPEN BETAALLINK</a>
   {% endif %}
 
   <form method="POST" action="{{ url_for('factuur_verwijderen', fid=factuur.factuur_id) }}"

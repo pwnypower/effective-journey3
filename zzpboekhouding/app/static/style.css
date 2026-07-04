@@ -199,6 +199,7 @@ html, body { height: 100%; font-family: var(--font-body); font-size: 14px; backg
 .btn-ghost { background: transparent; color: var(--muted); border: none; }
 .btn-ghost:hover { color: var(--text); }
 .btn-icon { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 3px 7px; transition: color 0.15s; }
+.inp-select { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 7px 10px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; cursor: pointer; }
 .btn-icon:hover { color: var(--amber); }
 .btn-icon.d:hover { color: var(--red); }
 
