@@ -1240,8 +1240,8 @@ def instellingen():
              f.get("factuurprefix","FAC"), int(f.get("factuurvolgend",1)),
              f.get("alg_voorwaarden",""), f.get("juridisch_voetnoot",""),
              behoud("mollie_key_test"), behoud("mollie_key_live"), f.get("mollie_mode","test"),
-             f.get("smtp_host",""), int(f.get("smtp_port",587)),
-             f.get("smtp_user",""), behoud("smtp_password"), f.get("smtp_from",""),
+             behoud("smtp_host"), int(f.get("smtp_port",587) or 587),
+             behoud("smtp_user"), behoud("smtp_password"), behoud("smtp_from"),
              1 if f.get("smtp_use_tls") else 0, f.get("app_base_url",""),
              f.get("mollie_poll_url",""), behoud("mollie_poll_token"),
              f.get("mollie_relay_url",""), f.get("mollie_bevestiging_url",""))

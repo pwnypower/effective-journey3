@@ -161,15 +161,7 @@
 
     <div class="panel" style="max-width:680px;margin-top:20px">
       <div class="panel-title">E-MAIL SMTP</div>
-      <div class="info-banner" style="margin-bottom:16px">SMTP-wachtwoord staat nooit in de database. Stel hem in via <code>SMTP_PASS</code> omgevingsvariabele.</div>
       <div class="fg fg2">
-        <div class="field">
-          <label>SMTP ACTIEF</label>
-          <select name="smtp_actief">
-            <option value="0" {{ 'selected' if not s.smtp_actief }}>Uitgeschakeld</option>
-            <option value="1" {{ 'selected' if s.smtp_actief }}>Ingeschakeld</option>
-          </select>
-        </div>
         <div class="field">
           <label>SMTP HOST</label>
           <input type="text" name="smtp_host" value="{{ s.smtp_host or '' }}" placeholder="smtp.gmail.com">
