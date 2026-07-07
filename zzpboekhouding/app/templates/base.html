@@ -76,6 +76,16 @@
   </div>
 </div>
 
+<div id="confirm-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;align-items:center;justify-content:center">
+  <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:28px 32px;max-width:400px;width:90%;font-family:var(--font-mono)">
+    <div id="confirm-msg" style="font-size:13px;color:var(--text);margin-bottom:20px;line-height:1.6"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button onclick="confirmCancel()" class="btn-sec">ANNULEREN</button>
+      <button id="confirm-ok" class="btn">BEVESTIGEN</button>
+    </div>
+  </div>
+</div>
+
 <script>
 function toggleSidebar() {
   const app = document.getElementById('app');
@@ -83,6 +93,26 @@ function toggleSidebar() {
   const col = app.classList.contains('sidebar-col');
   document.cookie = 'sidebar=' + (col ? 'col' : 'exp') + ';path=/;max-age=31536000';
 }
+
+let _confirmForm = null;
+function bevestig(form, msg) {
+  _confirmForm = form;
+  document.getElementById('confirm-msg').textContent = msg;
+  const ov = document.getElementById('confirm-overlay');
+  ov.style.display = 'flex';
+}
+function confirmCancel() {
+  document.getElementById('confirm-overlay').style.display = 'none';
+  _confirmForm = null;
+}
+function confirmOk() {
+  document.getElementById('confirm-overlay').style.display = 'none';
+  if (_confirmForm) _confirmForm.submit();
+}
+document.getElementById('confirm-ok').onclick = confirmOk;
+document.getElementById('confirm-overlay').addEventListener('click', function(e) {
+  if (e.target === this) confirmCancel();
+});
 </script>
 {% block scripts %}{% endblock %}
 </body>

@@ -22,12 +22,12 @@
   <div class="actions-sep"></div>
 
   {% if smtp_actief %}
-  <form method="POST" action="{{ url_for('factuur_versturen', fid=factuur.factuur_id) }}" style="display:contents">
-    <button type="submit" class="btn" onclick="return confirm('Factuur versturen naar {{ factuur.klant_email }}?')">VERSTUREN</button>
+  <form id="form-versturen" method="POST" action="{{ url_for('factuur_versturen', fid=factuur.factuur_id) }}" style="display:contents">
+    <button type="button" class="btn" onclick="bevestig(document.getElementById('form-versturen'), 'Factuur versturen naar {{ factuur.klant_email }}?')">VERSTUREN</button>
   </form>
   {% if factuur.status in ['verzonden','open'] and factuur.status != 'betaald' %}
-  <form method="POST" action="{{ url_for('factuur_herinnering', fid=factuur.factuur_id) }}" style="display:contents">
-    <button type="submit" class="btn-sec" onclick="return confirm('Betalingsherinnering sturen naar {{ factuur.klant_email }}?')">HERINNERING</button>
+  <form id="form-herinnering" method="POST" action="{{ url_for('factuur_herinnering', fid=factuur.factuur_id) }}" style="display:contents">
+    <button type="button" class="btn-sec" onclick="bevestig(document.getElementById('form-herinnering'), 'Betalingsherinnering sturen naar {{ factuur.klant_email }}?')">HERINNERING</button>
   </form>
   {% endif %}
   {% else %}
@@ -41,9 +41,8 @@
     </form>
     {% else %}
     <a href="{{ factuur.betaallink }}" target="_blank" class="btn-sec">BETAALLINK OPENEN</a>
-    <form method="POST" action="{{ url_for('factuur_mollie_reset', fid=factuur.factuur_id) }}" style="display:contents"
-          onsubmit="return confirm('Betaallink wissen en opnieuw aanmaken?')">
-      <button type="submit" class="btn-sec">↺ RESET LINK</button>
+    <form id="form-mollie-reset" method="POST" action="{{ url_for('factuur_mollie_reset', fid=factuur.factuur_id) }}" style="display:contents">
+      <button type="button" class="btn-sec" onclick="bevestig(document.getElementById('form-mollie-reset'), 'Betaallink wissen en opnieuw aanmaken?')">↺ RESET LINK</button>
     </form>
     {% endif %}
     {% if factuur.mollie_payment_id and factuur.status != 'betaald' %}
@@ -56,9 +55,8 @@
 
   <div class="actions-sep"></div>
 
-  <form method="POST" action="{{ url_for('factuur_verwijderen', fid=factuur.factuur_id) }}"
-        onsubmit="return confirm('Factuur {{ factuur.factuurnummer }} definitief verwijderen?')" style="display:contents">
-    <button type="submit" class="btn-danger">VERWIJDEREN</button>
+  <form id="form-verwijderen" method="POST" action="{{ url_for('factuur_verwijderen', fid=factuur.factuur_id) }}" style="display:contents">
+    <button type="button" class="btn-danger" onclick="bevestig(document.getElementById('form-verwijderen'), 'Factuur {{ factuur.factuurnummer }} definitief verwijderen?')">VERWIJDEREN</button>
   </form>
 </div>
 

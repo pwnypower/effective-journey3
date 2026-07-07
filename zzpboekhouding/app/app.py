@@ -1486,29 +1486,29 @@ def _verwerk_periodieke_facturen():
             )
             fid = cur.lastrowid
             # Bereken periode op basis van interval en volgende_datum
-        schema_datum = date.fromisoformat(p["volgende_datum"])
-        interval = p["interval"]
-        if interval == "maandelijks":
-            pv = schema_datum.replace(day=1)
-            pt = schema_datum.replace(day=monthrange(schema_datum.year, schema_datum.month)[1])
-        elif interval == "kwartaal":
-            q_start = ((schema_datum.month - 1) // 3) * 3 + 1
-            pv = date(schema_datum.year, q_start, 1)
-            q_end_m = q_start + 2
-            pt = date(schema_datum.year, q_end_m, monthrange(schema_datum.year, q_end_m)[1])
-        elif interval == "jaarlijks":
-            pv = date(schema_datum.year, 1, 1)
-            pt = date(schema_datum.year, 12, 31)
-        else:
-            pv = pt = None
+            schema_datum = date.fromisoformat(p["volgende_datum"])
+            interval = p["interval"]
+            if interval == "maandelijks":
+                pv = schema_datum.replace(day=1)
+                pt = schema_datum.replace(day=monthrange(schema_datum.year, schema_datum.month)[1])
+            elif interval == "kwartaal":
+                q_start = ((schema_datum.month - 1) // 3) * 3 + 1
+                pv = date(schema_datum.year, q_start, 1)
+                q_end_m = q_start + 2
+                pt = date(schema_datum.year, q_end_m, monthrange(schema_datum.year, q_end_m)[1])
+            elif interval == "jaarlijks":
+                pv = date(schema_datum.year, 1, 1)
+                pt = date(schema_datum.year, 12, 31)
+            else:
+                pv = pt = None
 
-        for r in regels:
-            regel_pv = r["periode_van"] if r["periode_van"] else (pv.isoformat() if pv else None)
-            regel_pt = r["periode_tot"] if r["periode_tot"] else (pt.isoformat() if pt else None)
-            db.execute(
-                "INSERT INTO factuurregels (factuur_id,omschrijving,aantal,eenheid,prijs_per_stuk,btw_percentage,periode_van,periode_tot) VALUES (?,?,?,?,?,?,?,?)",
-                (fid, r["omschrijving"], r["aantal"], r["eenheid"] or "st", r["prijs_per_stuk"], r["btw_percentage"], regel_pv, regel_pt),
-            )
+            for r in regels:
+                regel_pv = r["periode_van"] if r["periode_van"] else (pv.isoformat() if pv else None)
+                regel_pt = r["periode_tot"] if r["periode_tot"] else (pt.isoformat() if pt else None)
+                db.execute(
+                    "INSERT INTO factuurregels (factuur_id,omschrijving,aantal,eenheid,prijs_per_stuk,btw_percentage,periode_van,periode_tot) VALUES (?,?,?,?,?,?,?,?)",
+                    (fid, r["omschrijving"], r["aantal"], r["eenheid"] or "st", r["prijs_per_stuk"], r["btw_percentage"], regel_pv, regel_pt),
+                )
             volgende = volgend_periodiek_datum(date.fromisoformat(p["volgende_datum"]), p["interval"])
             db.execute("UPDATE periodieke_facturen SET volgende_datum=? WHERE id=?", (volgende.isoformat(), p["id"]))
             db.execute("UPDATE instellingen SET factuurvolgend=factuurvolgend+1 WHERE id=1")
