@@ -1072,7 +1072,7 @@ def factuur_versturen(fid):
             factuur=factuur, regels=regels, bek=bek,
             settings=s, betaallink=betaallink)
         verstuur_email(factuur["klant_email"], f"Factuur {factuur['factuurnummer']}", html)
-        nu = datetime.date.today().isoformat()
+        nu = date.today().isoformat()
         db.execute("UPDATE facturen SET status='verzonden', verzonden_op=? WHERE id=? AND status NOT IN ('betaald')",
                    (nu, fid))
         db.commit()
@@ -1101,7 +1101,7 @@ def factuur_herinnering(fid):
             betaallink=factuur["betaallink"])
         verstuur_email(factuur["klant_email"],
                        f"Betalingsherinnering {factuur['factuurnummer']}", html)
-        nu = datetime.date.today().isoformat()
+        nu = date.today().isoformat()
         db.execute("INSERT INTO herinneringen (factuur_id, verstuurd_op, naar) VALUES (?,?,?)",
                    (fid, nu, factuur["klant_email"]))
         db.commit()
