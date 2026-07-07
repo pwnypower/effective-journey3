@@ -269,7 +269,22 @@ def init_db():
 def get_settings():
     if "settings" not in g:
         row = get_db().execute("SELECT * FROM instellingen WHERE id=1").fetchone()
-        g.settings = dict(row) if row else {}
+        s = dict(row) if row else {}
+        # Vul lege DB-velden aan met env vars (HA add-on configuratie)
+        env_defaults = {
+            "bedrijfsnaam": _ENV_NAAM,
+            "smtp_host": _ENV_SMTP_HOST,
+            "smtp_port": _ENV_SMTP_PORT,
+            "smtp_user": _ENV_SMTP_USER,
+            "smtp_password": _ENV_SMTP_PASS,
+            "smtp_from": _ENV_SMTP_FROM,
+            "smtp_use_tls": 1 if _ENV_SMTP_TLS else 0,
+            "app_base_url": _ENV_BASE_URL,
+        }
+        for k, v in env_defaults.items():
+            if not s.get(k) and v:
+                s[k] = v
+        g.settings = s
     return g.settings
 
 
