@@ -25,6 +25,11 @@
   <form method="POST" action="{{ url_for('factuur_versturen', fid=factuur.factuur_id) }}" style="display:contents">
     <button type="submit" class="btn" onclick="return confirm('Factuur versturen naar {{ factuur.klant_email }}?')">VERSTUREN</button>
   </form>
+  {% if factuur.status in ['verzonden','open'] and factuur.status != 'betaald' %}
+  <form method="POST" action="{{ url_for('factuur_herinnering', fid=factuur.factuur_id) }}" style="display:contents">
+    <button type="submit" class="btn-sec" onclick="return confirm('Betalingsherinnering sturen naar {{ factuur.klant_email }}?')">HERINNERING</button>
+  </form>
+  {% endif %}
   {% else %}
   <button class="btn" disabled title="Stel SMTP in via Instellingen">VERSTUREN</button>
   {% endif %}
@@ -73,6 +78,7 @@
       <div style="font-family:'Space Mono',monospace;font-size:11px;color:#555;margin-top:8px;line-height:1.8">
         DATUM: {{ factuur.factuurdatum }}<br>
         VERVALDATUM: {{ factuur.vervaldatum }}<br>
+        {% if factuur.verzonden_op %}VERZONDEN: {{ factuur.verzonden_op }}<br>{% endif %}
         {% if factuur.projectnummer %}PROJECT: {{ factuur.projectnummer }}<br>{% endif %}
         {% if factuur.referentie %}REF: {{ factuur.referentie }}<br>{% endif %}
       </div>
@@ -167,5 +173,17 @@
   <div style="margin-top:4px;font-size:11px;color:#aaa">Algemene voorwaarden: {{ settings.alg_voorwaarden }}</div>
   {% endif %}
 </div>
+
+{% if herinneringen %}
+<div class="panel" style="margin-top:20px;max-width:860px">
+  <div class="panel-title">HERINNERINGEN VERSTUURD</div>
+  {% for h in herinneringen %}
+  <div style="display:flex;gap:24px;padding:8px 0;border-bottom:1px solid #f0f0f0;font-size:12px;font-family:'Space Mono',monospace">
+    <span style="color:#f0a500">{{ h.verstuurd_op }}</span>
+    <span style="color:#777">→ {{ h.naar }}</span>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
 
 {% endblock %}

@@ -154,6 +154,13 @@ def init_db():
             prijs REAL NOT NULL DEFAULT 0,
             eenheid TEXT NOT NULL DEFAULT 'st'
         );
+        CREATE TABLE IF NOT EXISTS herinneringen (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            factuur_id INTEGER NOT NULL,
+            verstuurd_op TEXT NOT NULL,
+            naar TEXT NOT NULL,
+            FOREIGN KEY (factuur_id) REFERENCES facturen (id)
+        );
         CREATE TABLE IF NOT EXISTS instellingen (
             id INTEGER PRIMARY KEY DEFAULT 1,
             bedrijfsnaam TEXT NOT NULL DEFAULT '',
@@ -216,6 +223,7 @@ def init_db():
         ("projectnummer", "TEXT"),
         ("referentie", "TEXT"),
         ("betalingstermijn", "INTEGER NOT NULL DEFAULT 30"),
+        ("verzonden_op", "TEXT"),
     ]:
         try:
             db.execute(f"ALTER TABLE facturen ADD COLUMN {col} {defn}")
@@ -328,12 +336,22 @@ def verstuur_email(naar, onderwerp, html_body):
     msg["Subject"] = onderwerp
     msg["From"] = s.get("smtp_from") or s["smtp_user"]
     msg["To"] = naar
-    msg.attach(MIMEText(html_body, "html"))
-    with smtplib.SMTP(s["smtp_host"], int(s.get("smtp_port", 587)), timeout=20) as srv:
-        if s.get("smtp_use_tls", 1):
-            srv.starttls()
-        srv.login(s["smtp_user"], s["smtp_password"])
-        srv.sendmail(msg["From"], [naar], msg.as_string())
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
+    host = s["smtp_host"]
+    port = int(s.get("smtp_port", 587))
+    use_tls = s.get("smtp_use_tls", 1)
+    if port == 465:
+        # Directe SSL-verbinding (eigen hosting, Outlook)
+        with smtplib.SMTP_SSL(host, port, timeout=20) as srv:
+            srv.login(s["smtp_user"], s["smtp_password"])
+            srv.sendmail(msg["From"], [naar], msg.as_string())
+    else:
+        # STARTTLS (poort 587 of 25)
+        with smtplib.SMTP(host, port, timeout=20) as srv:
+            if use_tls:
+                srv.starttls()
+            srv.login(s["smtp_user"], s["smtp_password"])
+            srv.sendmail(msg["From"], [naar], msg.as_string())
 
 
 def _mollie_key():
@@ -923,8 +941,11 @@ def factuur_bekijken(fid):
     ).fetchone()
     regels = db.execute("SELECT * FROM factuurregels WHERE factuur_id=?", (fid,)).fetchall()
     bek = factuur_berekening(regels, _reg_val(factuur, "korting") or 0, _reg_val(factuur, "korting_type") or "pct")
+    herinneringen = db.execute(
+        "SELECT verstuurd_op, naar FROM herinneringen WHERE factuur_id=? ORDER BY verstuurd_op DESC", (fid,)
+    ).fetchall()
     return render_template("factuur_view.html", factuur=factuur, regels=regels, bek=bek,
-                           mollie_actief=bool(_mollie_key()),
+                           mollie_actief=bool(_mollie_key()), herinneringen=herinneringen,
                            smtp_actief=smtp_ok(), has_docx=HAS_DOCX)
 
 
@@ -1036,9 +1057,40 @@ def factuur_versturen(fid):
         settings=s, betaallink=betaallink)
     try:
         verstuur_email(factuur["klant_email"], f"Factuur {factuur['factuurnummer']}", html)
-        db.execute("UPDATE facturen SET status='verzonden' WHERE id=? AND status='concept'", (fid,))
+        nu = datetime.date.today().isoformat()
+        db.execute("UPDATE facturen SET status='verzonden', verzonden_op=? WHERE id=? AND status NOT IN ('betaald')",
+                   (nu, fid))
         db.commit()
         flash(f"Factuur verstuurd naar {factuur['klant_email']}.", "success")
+    except Exception as e:
+        flash(f"E-mail mislukt: {e}", "danger")
+    return redirect(url_for("factuur_bekijken", fid=fid))
+
+
+@app.route("/facturen/<int:fid>/herinnering", methods=["POST"])
+def factuur_herinnering(fid):
+    db = get_db()
+    factuur = db.execute(
+        "SELECT f.*, k.naam AS klant_naam, k.email AS klant_email FROM facturen f JOIN klanten k ON k.id=f.klant_id WHERE f.id=?",
+        (fid,),
+    ).fetchone()
+    regels = db.execute("SELECT * FROM factuurregels WHERE factuur_id=?", (fid,)).fetchall()
+    bek = factuur_berekening(regels, _reg_val(factuur, "korting") or 0, _reg_val(factuur, "korting_type") or "pct")
+    s = get_settings()
+    if not factuur["klant_email"]:
+        flash("Klant heeft geen e-mailadres.", "danger")
+        return redirect(url_for("factuur_bekijken", fid=fid))
+    html = render_template("mail_herinnering.html",
+        factuur=factuur, regels=regels, bek=bek, settings=s,
+        betaallink=factuur["betaallink"])
+    try:
+        verstuur_email(factuur["klant_email"],
+                       f"Betalingsherinnering {factuur['factuurnummer']}", html)
+        nu = datetime.date.today().isoformat()
+        db.execute("INSERT INTO herinneringen (factuur_id, verstuurd_op, naar) VALUES (?,?,?)",
+                   (fid, nu, factuur["klant_email"]))
+        db.commit()
+        flash(f"Herinnering verstuurd naar {factuur['klant_email']}.", "success")
     except Exception as e:
         flash(f"E-mail mislukt: {e}", "danger")
     return redirect(url_for("factuur_bekijken", fid=fid))
