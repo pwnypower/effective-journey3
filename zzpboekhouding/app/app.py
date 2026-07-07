@@ -1080,10 +1080,10 @@ def factuur_herinnering(fid):
     if not factuur["klant_email"]:
         flash("Klant heeft geen e-mailadres.", "danger")
         return redirect(url_for("factuur_bekijken", fid=fid))
-    html = render_template("mail_herinnering.html",
-        factuur=factuur, regels=regels, bek=bek, settings=s,
-        betaallink=factuur["betaallink"])
     try:
+        html = render_template("mail_herinnering.html",
+            factuur=factuur, regels=regels, bek=bek, settings=s,
+            betaallink=factuur["betaallink"])
         verstuur_email(factuur["klant_email"],
                        f"Betalingsherinnering {factuur['factuurnummer']}", html)
         nu = datetime.date.today().isoformat()

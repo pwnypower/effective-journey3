@@ -22,12 +22,12 @@
   <div class="actions-sep"></div>
 
   {% if smtp_actief %}
-  <form id="form-versturen" method="POST" action="{{ url_for('factuur_versturen', fid=factuur.factuur_id) }}" style="display:contents">
-    <button type="button" class="btn" onclick="bevestig(document.getElementById('form-versturen'), 'Factuur versturen naar {{ factuur.klant_email }}?')">VERSTUREN</button>
+  <form method="POST" action="{{ url_for('factuur_versturen', fid=factuur.factuur_id) }}" style="display:contents">
+    <button type="submit" class="btn">VERSTUREN</button>
   </form>
   {% if factuur.status in ['verzonden','open'] and factuur.status != 'betaald' %}
-  <form id="form-herinnering" method="POST" action="{{ url_for('factuur_herinnering', fid=factuur.factuur_id) }}" style="display:contents">
-    <button type="button" class="btn-sec" onclick="bevestig(document.getElementById('form-herinnering'), 'Betalingsherinnering sturen naar {{ factuur.klant_email }}?')">HERINNERING</button>
+  <form method="POST" action="{{ url_for('factuur_herinnering', fid=factuur.factuur_id) }}" style="display:contents">
+    <button type="submit" class="btn-sec">HERINNERING</button>
   </form>
   {% endif %}
   {% else %}
