@@ -1052,10 +1052,10 @@ def factuur_versturen(fid):
             betaallink = maak_mollie_payment(fid, bek["totaal"], factuur["factuurnummer"])
         except Exception:
             betaallink = None
-    html = render_template("mail_factuur.html",
-        factuur=factuur, regels=regels, bek=bek,
-        settings=s, betaallink=betaallink)
     try:
+        html = render_template("mail_factuur.html",
+            factuur=factuur, regels=regels, bek=bek,
+            settings=s, betaallink=betaallink)
         verstuur_email(factuur["klant_email"], f"Factuur {factuur['factuurnummer']}", html)
         nu = datetime.date.today().isoformat()
         db.execute("UPDATE facturen SET status='verzonden', verzonden_op=? WHERE id=? AND status NOT IN ('betaald')",
@@ -1063,7 +1063,7 @@ def factuur_versturen(fid):
         db.commit()
         flash(f"Factuur verstuurd naar {factuur['klant_email']}.", "success")
     except Exception as e:
-        flash(f"E-mail mislukt: {e}", "danger")
+        flash(f"E-mail mislukt: {type(e).__name__}: {e}", "danger")
     return redirect(url_for("factuur_bekijken", fid=fid))
 
 
@@ -1092,7 +1092,7 @@ def factuur_herinnering(fid):
         db.commit()
         flash(f"Herinnering verstuurd naar {factuur['klant_email']}.", "success")
     except Exception as e:
-        flash(f"E-mail mislukt: {e}", "danger")
+        flash(f"E-mail mislukt: {type(e).__name__}: {e}", "danger")
     return redirect(url_for("factuur_bekijken", fid=fid))
 
 
