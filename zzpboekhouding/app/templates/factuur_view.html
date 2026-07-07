@@ -22,9 +22,7 @@
   <div class="actions-sep"></div>
 
   {% if smtp_actief %}
-  <form method="POST" action="{{ url_for('factuur_versturen', fid=factuur.factuur_id) }}" style="display:contents">
-    <button type="submit" class="btn">VERSTUREN</button>
-  </form>
+  <button type="button" class="btn" onclick="document.getElementById('modal-versturen').style.display='flex'">VERSTUREN</button>
   {% if factuur.status in ['verzonden','open'] and factuur.status != 'betaald' %}
   <form method="POST" action="{{ url_for('factuur_herinnering', fid=factuur.factuur_id) }}" style="display:contents">
     <button type="submit" class="btn-sec">HERINNERING</button>
@@ -170,6 +168,26 @@
   {% if settings.alg_voorwaarden %}
   <div style="margin-top:4px;font-size:11px;color:#aaa">Algemene voorwaarden: {{ settings.alg_voorwaarden }}</div>
   {% endif %}
+</div>
+
+<!-- Modal: versturen met persoonlijke tekst -->
+<div id="modal-versturen" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;align-items:center;justify-content:center">
+  <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:28px 32px;max-width:480px;width:90%;font-family:var(--font-mono)">
+    <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;color:var(--amber);margin-bottom:16px">FACTUUR VERSTUREN</div>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Naar: <strong>{{ factuur.klant_email }}</strong></div>
+    <form method="POST" action="{{ url_for('factuur_versturen', fid=factuur.factuur_id) }}">
+      <div style="margin-bottom:16px">
+        <label style="font-size:10px;letter-spacing:0.06em;color:var(--text-muted);display:block;margin-bottom:6px">PERSOONLIJKE TEKST (optioneel)</label>
+        <textarea name="persoonlijk_bericht" rows="4"
+          style="width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--font-body);font-size:13px;padding:10px;border-radius:3px;resize:vertical"
+          placeholder="Geachte heer/mevrouw, Bijgevoegd treft u factuur..."></textarea>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button type="button" class="btn-sec" onclick="document.getElementById('modal-versturen').style.display='none'">ANNULEREN</button>
+        <button type="submit" class="btn">VERSTUREN</button>
+      </div>
+    </form>
+  </div>
 </div>
 
 {% if herinneringen %}

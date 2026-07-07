@@ -8,6 +8,7 @@
   <button class="tab-btn" onclick="showTab('juridisch')">JURIDISCH</button>
   <button class="tab-btn" onclick="showTab('mollie')">MOLLIE / SMTP</button>
   <button class="tab-btn" onclick="showTab('nummering')">NUMMERING</button>
+  <button class="tab-btn" onclick="showTab('mailtemplates')">MAILTEMPLATES</button>
 </div>
 
 <form method="POST">
@@ -189,6 +190,54 @@
             <option value="0" {{ 'selected' if not s.smtp_use_tls }}>Uit</option>
           </select>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Mailtemplates -->
+  <div class="tab-panel" id="tab-mailtemplates">
+    <div class="panel" style="max-width:860px">
+      <div class="panel-title">MAILTEMPLATE — FACTUUR</div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.6">
+        Pas de HTML van de factuurmail aan. Gebruik <code>{{ "{{" }} factuur.factuurnummer {{ "}}" }}</code> stijl Jinja2-placeholders.
+        Laat leeg om de standaard mailtemplate te gebruiken.
+      </p>
+      <div class="code-box" style="margin-bottom:14px;font-size:11px;line-height:2">
+        <strong>Placeholders factuurmail:</strong><br>
+        <span class="m-amber">{{ "{{" }} factuur.factuurnummer {{ "}}" }}</span> &nbsp;
+        <span class="m-amber">{{ "{{" }} factuur.factuurdatum {{ "}}" }}</span> &nbsp;
+        <span class="m-amber">{{ "{{" }} factuur.vervaldatum {{ "}}" }}</span> &nbsp;
+        <span class="m-amber">{{ "{{" }} factuur.klant_naam {{ "}}" }}</span><br>
+        <span class="m-amber">{{ "{{" }} bek.totaal {{ "}}" }}</span> &nbsp;
+        <span class="m-amber">{{ "{{" }} bek.subtotaal {{ "}}" }}</span> &nbsp;
+        <span class="m-amber">{{ "{{" }} betaallink {{ "}}" }}</span> &nbsp;
+        <span class="m-amber">{{ "{{" }} persoonlijk_bericht {{ "}}" }}</span><br>
+        <span class="m-amber">{{ "{{" }} settings.bedrijfsnaam {{ "}}" }}</span> &nbsp;
+        <span class="m-amber">{{ "{{" }} settings.iban {{ "}}" }}</span> &nbsp;
+        <span class="m-amber">{{ "{{" }} settings.kvk {{ "}}" }}</span>
+      </div>
+      <div class="field" style="margin-bottom:0">
+        <label>HTML MAILTEMPLATE FACTUUR</label>
+        <textarea name="mail_factuur_template" rows="22"
+          style="font-family:var(--font-mono);font-size:12px;line-height:1.5;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:12px;width:100%;box-sizing:border-box;resize:vertical">{{ s.get('mail_factuur_template','') }}</textarea>
+      </div>
+      <div style="margin-top:8px;font-size:11px;color:var(--muted)">
+        Laat leeg → standaard template uit <code>templates/mail_factuur.html</code> wordt gebruikt.
+      </div>
+    </div>
+
+    <div class="panel" style="max-width:860px;margin-top:20px">
+      <div class="panel-title">MAILTEMPLATE — HERINNERING</div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.6">
+        Dezelfde placeholders zijn beschikbaar als bij de factuurmail.
+      </p>
+      <div class="field" style="margin-bottom:0">
+        <label>HTML MAILTEMPLATE HERINNERING</label>
+        <textarea name="mail_herinnering_template" rows="22"
+          style="font-family:var(--font-mono);font-size:12px;line-height:1.5;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:12px;width:100%;box-sizing:border-box;resize:vertical">{{ s.get('mail_herinnering_template','') }}</textarea>
+      </div>
+      <div style="margin-top:8px;font-size:11px;color:var(--muted)">
+        Laat leeg → standaard template uit <code>templates/mail_herinnering.html</code> wordt gebruikt.
       </div>
     </div>
   </div>

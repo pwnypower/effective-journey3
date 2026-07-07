@@ -7,6 +7,8 @@ import json as _json
 from calendar import monthrange
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders as _encoders
 from datetime import datetime, date, timedelta
 from flask import (Flask, render_template, request, redirect, url_for,
                    flash, g, send_file, make_response, jsonify)
@@ -33,6 +35,7 @@ try:
     HAS_DOCXTPL = True
 except ImportError:
     HAS_DOCXTPL = False
+
 
 TEMPLATE_PAD = os.environ.get(
     "TEMPLATE_PAD",
@@ -243,7 +246,9 @@ def init_db():
     for col, defn in [("mollie_poll_url", "TEXT NOT NULL DEFAULT ''"),
                       ("mollie_poll_token", "TEXT NOT NULL DEFAULT ''"),
                       ("mollie_relay_url", "TEXT NOT NULL DEFAULT ''"),
-                      ("mollie_bevestiging_url", "TEXT NOT NULL DEFAULT ''")]:
+                      ("mollie_bevestiging_url", "TEXT NOT NULL DEFAULT ''"),
+                      ("mail_factuur_template", "TEXT NOT NULL DEFAULT ''"),
+                      ("mail_herinnering_template", "TEXT NOT NULL DEFAULT ''")]:
         try:
             db.execute(f"ALTER TABLE instellingen ADD COLUMN {col} {defn}")
         except Exception:
@@ -343,25 +348,57 @@ def smtp_ok():
     return bool(s.get("smtp_host") and s.get("smtp_user") and s.get("smtp_password"))
 
 
-def verstuur_email(naar, onderwerp, html_body):
+def genereer_factuur_docx(factuur_id) -> bytes | None:
+    """Genereert het Word-bestand als bytes voor e-mailbijlage. None als docxtpl niet beschikbaar."""
+    if not HAS_DOCXTPL:
+        return None
+    try:
+        db = get_db()
+        factuur = db.execute(
+            "SELECT f.*, k.naam AS naam, k.adres AS adres, k.postcode AS postcode, "
+            "k.plaats AS plaats, k.btw_nummer AS btw_nummer "
+            "FROM facturen f JOIN klanten k ON k.id=f.klant_id WHERE f.id=?", (factuur_id,)
+        ).fetchone()
+        if not factuur:
+            return None
+        regels = db.execute("SELECT * FROM factuurregels WHERE factuur_id=?", (factuur_id,)).fetchall()
+        bek = factuur_berekening(regels, _reg_val(factuur, "korting") or 0, _reg_val(factuur, "korting_type") or "pct")
+        s = get_settings()
+        doc = genereer_word_via_template(factuur, regels, bek, s)
+        buf = io.BytesIO()
+        doc.save(buf)
+        return buf.getvalue()
+    except Exception:
+        return None
+
+
+def verstuur_email(naar, onderwerp, html_body, bijlagen=None):
+    """bijlagen: lijst van (bestandsnaam, bytes, mimetype) tuples."""
     s = get_settings()
     if not smtp_ok():
         raise RuntimeError("SMTP niet geconfigureerd. Stel in via Instellingen.")
-    msg = MIMEMultipart("alternative")
+    msg = MIMEMultipart("mixed")
     msg["Subject"] = onderwerp
     msg["From"] = s.get("smtp_from") or s["smtp_user"]
     msg["To"] = naar
-    msg.attach(MIMEText(html_body, "html", "utf-8"))
+    alt = MIMEMultipart("alternative")
+    alt.attach(MIMEText(html_body, "html", "utf-8"))
+    msg.attach(alt)
+    for naam, data, mime in (bijlagen or []):
+        hoofd, sub = mime.split("/")
+        part = MIMEBase(hoofd, sub)
+        part.set_payload(data)
+        _encoders.encode_base64(part)
+        part.add_header("Content-Disposition", "attachment", filename=naam)
+        msg.attach(part)
     host = s["smtp_host"]
     port = int(s.get("smtp_port", 587))
     use_tls = s.get("smtp_use_tls", 1)
     if port == 465:
-        # Directe SSL-verbinding (eigen hosting, Outlook)
         with smtplib.SMTP_SSL(host, port, timeout=20) as srv:
             srv.login(s["smtp_user"], s["smtp_password"])
             srv.sendmail(msg["From"], [naar], msg.as_string())
     else:
-        # STARTTLS (poort 587 of 25)
         with smtplib.SMTP(host, port, timeout=20) as srv:
             if use_tls:
                 srv.starttls()
@@ -1067,11 +1104,24 @@ def factuur_versturen(fid):
             betaallink = maak_mollie_payment(fid, bek["totaal"], factuur["factuurnummer"])
         except Exception:
             betaallink = None
+    persoonlijk = request.form.get("persoonlijk_bericht", "").strip()
     try:
-        html = render_template("mail_factuur.html",
-            factuur=factuur, regels=regels, bek=bek,
-            settings=s, betaallink=betaallink)
-        verstuur_email(factuur["klant_email"], f"Factuur {factuur['factuurnummer']}", html)
+        tpl_vars = dict(factuur=factuur, regels=regels, bek=bek,
+                        settings=s, betaallink=betaallink,
+                        persoonlijk_bericht=persoonlijk)
+        aangepast = s.get("mail_factuur_template", "").strip()
+        if aangepast:
+            from jinja2 import Environment
+            env = Environment(autoescape=False)
+            html = env.from_string(aangepast).render(**tpl_vars)
+        else:
+            html = render_template("mail_factuur.html", **tpl_vars)
+        bijlagen = []
+        docx = genereer_factuur_docx(fid)
+        if docx:
+            mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            bijlagen.append((f"factuur_{factuur['factuurnummer']}.docx", docx, mime))
+        verstuur_email(factuur["klant_email"], f"Factuur {factuur['factuurnummer']}", html, bijlagen)
         nu = date.today().isoformat()
         db.execute("UPDATE facturen SET status='verzonden', verzonden_op=? WHERE id=? AND status NOT IN ('betaald')",
                    (nu, fid))
@@ -1096,9 +1146,15 @@ def factuur_herinnering(fid):
         flash("Klant heeft geen e-mailadres.", "danger")
         return redirect(url_for("factuur_bekijken", fid=fid))
     try:
-        html = render_template("mail_herinnering.html",
-            factuur=factuur, regels=regels, bek=bek, settings=s,
-            betaallink=factuur["betaallink"])
+        tpl_vars = dict(factuur=factuur, regels=regels, bek=bek, settings=s,
+                        betaallink=factuur["betaallink"])
+        aangepast = s.get("mail_herinnering_template", "").strip()
+        if aangepast:
+            from jinja2 import Environment
+            env = Environment(autoescape=False)
+            html = env.from_string(aangepast).render(**tpl_vars)
+        else:
+            html = render_template("mail_herinnering.html", **tpl_vars)
         verstuur_email(factuur["klant_email"],
                        f"Betalingsherinnering {factuur['factuurnummer']}", html)
         nu = date.today().isoformat()
@@ -1299,7 +1355,8 @@ def instellingen():
                kvk=?,btwnummer=?,iban=?,betalingstermijn=?,factuurprefix=?,factuurvolgend=?,
                alg_voorwaarden=?,juridisch_voetnoot=?,mollie_key_test=?,mollie_key_live=?,mollie_mode=?,
                smtp_host=?,smtp_port=?,smtp_user=?,smtp_password=?,smtp_from=?,smtp_use_tls=?,app_base_url=?,
-               mollie_poll_url=?,mollie_poll_token=?,mollie_relay_url=?,mollie_bevestiging_url=?
+               mollie_poll_url=?,mollie_poll_token=?,mollie_relay_url=?,mollie_bevestiging_url=?,
+               mail_factuur_template=?,mail_herinnering_template=?
                WHERE id=1""",
             (f.get("bedrijfsnaam",""), f.get("adres",""), f.get("postcode",""), f.get("stad",""),
              f.get("email",""), f.get("telefoon",""), f.get("kvk",""), f.get("btwnummer",""),
@@ -1311,7 +1368,8 @@ def instellingen():
              behoud("smtp_user"), behoud("smtp_password"), behoud("smtp_from"),
              1 if f.get("smtp_use_tls") else 0, f.get("app_base_url",""),
              f.get("mollie_poll_url",""), behoud("mollie_poll_token"),
-             f.get("mollie_relay_url",""), f.get("mollie_bevestiging_url",""))
+             f.get("mollie_relay_url",""), f.get("mollie_bevestiging_url",""),
+             f.get("mail_factuur_template",""), f.get("mail_herinnering_template",""))
         )
         db.commit()
         g.pop("settings", None)

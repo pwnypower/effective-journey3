@@ -6,7 +6,9 @@
       "Bash(docker --version)",
       "Bash(docker compose *)",
       "Bash(DB_PATH=/tmp/tp.db python3 -c ' *)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(python -m py_compile zzpboekhouding/app/app.py)",
+      "Bash(python3 -m py_compile /mnt/c/Users/timbo/OneDrive/Documents/GitHub/effective-journey3/zzpboekhouding/app/app.py)"
     ]
   },
   "enableAllProjectMcpServers": true,

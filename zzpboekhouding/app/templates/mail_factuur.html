@@ -20,6 +20,9 @@
       Beste {{ factuur.klant_naam }},<br><br>
       Hierbij ontvangt u factuur <strong>{{ factuur.factuurnummer }}</strong>.
       Wij verzoeken u het bedrag voor <strong>{{ factuur.vervaldatum }}</strong> te voldoen.
+    {% if persoonlijk_bericht %}
+    <br><br>{{ persoonlijk_bericht }}
+    {% endif %}
     </div>
   </td></tr>
 
