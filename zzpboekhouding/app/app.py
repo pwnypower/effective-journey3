@@ -61,6 +61,26 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-me")
 app.wsgi_app = IngressMiddleware(app.wsgi_app)
 
+
+@app.template_filter("nl_datum")
+def nl_datum(s):
+    """Zet ISO-datum (yyyy-mm-dd) om naar Nederlandse notatie (dd-mm-yyyy)."""
+    if not s:
+        return s
+    try:
+        return datetime.strptime(str(s), "%Y-%m-%d").strftime("%d-%m-%Y")
+    except (ValueError, TypeError):
+        return s
+
+
+def factuur_voor_mail(factuur):
+    """Geeft factuur als dict terug met datums al in Nederlands formaat."""
+    d = dict(factuur)
+    for k in ("factuurdatum", "vervaldatum", "verzonden_op"):
+        if d.get(k):
+            d[k] = nl_datum(d[k])
+    return d
+
 DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(__file__), "boekhouding.db"))
 PORT = int(os.environ.get("PORT", "5000"))
 
@@ -1106,14 +1126,13 @@ def factuur_versturen(fid):
             betaallink = None
     persoonlijk = request.form.get("persoonlijk_bericht", "").strip()
     try:
-        tpl_vars = dict(factuur=factuur, regels=regels, bek=bek,
+        tpl_vars = dict(factuur=factuur_voor_mail(factuur), regels=regels, bek=bek,
                         settings=s, betaallink=betaallink,
                         persoonlijk_bericht=persoonlijk)
         aangepast = s.get("mail_factuur_template", "").strip()
         if aangepast:
             from jinja2 import Environment
-            env = Environment(autoescape=False)
-            html = env.from_string(aangepast).render(**tpl_vars)
+            html = Environment(autoescape=False).from_string(aangepast).render(**tpl_vars)
         else:
             html = render_template("mail_factuur.html", **tpl_vars)
         bijlagen = []
@@ -1146,13 +1165,12 @@ def factuur_herinnering(fid):
         flash("Klant heeft geen e-mailadres.", "danger")
         return redirect(url_for("factuur_bekijken", fid=fid))
     try:
-        tpl_vars = dict(factuur=factuur, regels=regels, bek=bek, settings=s,
-                        betaallink=factuur["betaallink"])
+        tpl_vars = dict(factuur=factuur_voor_mail(factuur), regels=regels, bek=bek,
+                        settings=s, betaallink=factuur["betaallink"])
         aangepast = s.get("mail_herinnering_template", "").strip()
         if aangepast:
             from jinja2 import Environment
-            env = Environment(autoescape=False)
-            html = env.from_string(aangepast).render(**tpl_vars)
+            html = Environment(autoescape=False).from_string(aangepast).render(**tpl_vars)
         else:
             html = render_template("mail_herinnering.html", **tpl_vars)
         verstuur_email(factuur["klant_email"],

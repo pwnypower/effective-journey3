@@ -214,7 +214,10 @@
         <span class="m-amber">{{ "{{" }} persoonlijk_bericht {{ "}}" }}</span><br>
         <span class="m-amber">{{ "{{" }} settings.bedrijfsnaam {{ "}}" }}</span> &nbsp;
         <span class="m-amber">{{ "{{" }} settings.iban {{ "}}" }}</span> &nbsp;
-        <span class="m-amber">{{ "{{" }} settings.kvk {{ "}}" }}</span>
+        <span class="m-amber">{{ "{{" }} settings.kvk {{ "}}" }}</span><br>
+        <strong>Datums zijn altijd in dd-mm-jjjj formaat.</strong><br>
+        <strong>Persoonlijk bericht (conditioneel):</strong><br>
+        <span style="font-size:10px">{% raw %}{% if persoonlijk_bericht %}&lt;p&gt;{{ persoonlijk_bericht }}&lt;/p&gt;{% endif %}{% endraw %}</span>
       </div>
       <div class="field" style="margin-bottom:0">
         <label>HTML MAILTEMPLATE FACTUUR</label>
