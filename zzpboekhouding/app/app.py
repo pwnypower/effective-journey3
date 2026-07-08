@@ -368,10 +368,34 @@ def smtp_ok():
     return bool(s.get("smtp_host") and s.get("smtp_user") and s.get("smtp_password"))
 
 
-def genereer_factuur_docx(factuur_id) -> bytes | None:
-    """Genereert het Word-bestand als bytes voor e-mailbijlage. None als docxtpl niet beschikbaar."""
+def docx_naar_pdf(docx_bytes: bytes) -> bytes | None:
+    """Converteert een .docx (als bytes) naar PDF via LibreOffice headless."""
+    import subprocess, tempfile
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_pad = os.path.join(tmpdir, "factuur.docx")
+            with open(docx_pad, "wb") as f:
+                f.write(docx_bytes)
+            result = subprocess.run(
+                ["libreoffice", "--headless", "--convert-to", "pdf",
+                 "--outdir", tmpdir, docx_pad],
+                capture_output=True, timeout=60
+            )
+            if result.returncode != 0:
+                return None
+            pdf_pad = docx_pad.replace(".docx", ".pdf")
+            if os.path.exists(pdf_pad):
+                with open(pdf_pad, "rb") as f:
+                    return f.read()
+    except Exception:
+        pass
+    return None
+
+
+def genereer_factuur_bijlage(factuur_id):
+    """Genereert factuur als PDF-bytes (via docx→pdf). Fallback: docx-bytes."""
     if not HAS_DOCXTPL:
-        return None
+        return None, None, None
     try:
         db = get_db()
         factuur = db.execute(
@@ -380,16 +404,21 @@ def genereer_factuur_docx(factuur_id) -> bytes | None:
             "FROM facturen f JOIN klanten k ON k.id=f.klant_id WHERE f.id=?", (factuur_id,)
         ).fetchone()
         if not factuur:
-            return None
+            return None, None, None
         regels = db.execute("SELECT * FROM factuurregels WHERE factuur_id=?", (factuur_id,)).fetchall()
         bek = factuur_berekening(regels, _reg_val(factuur, "korting") or 0, _reg_val(factuur, "korting_type") or "pct")
         s = get_settings()
         doc = genereer_word_via_template(factuur, regels, bek, s)
         buf = io.BytesIO()
         doc.save(buf)
-        return buf.getvalue()
+        docx_bytes = buf.getvalue()
+        nr = factuur["factuurnummer"]
+        pdf = docx_naar_pdf(docx_bytes)
+        if pdf:
+            return f"factuur_{nr}.pdf", pdf, "application/pdf"
+        return f"factuur_{nr}.docx", docx_bytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     except Exception:
-        return None
+        return None, None, None
 
 
 def verstuur_email(naar, onderwerp, html_body, bijlagen=None):
@@ -1234,10 +1263,9 @@ def factuur_versturen(fid):
         else:
             html = render_template("mail_factuur.html", **tpl_vars)
         bijlagen = []
-        docx = genereer_factuur_docx(fid)
-        if docx:
-            mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            bijlagen.append((f"factuur_{factuur['factuurnummer']}.docx", docx, mime))
+        naam, data, mime = genereer_factuur_bijlage(fid)
+        if naam and data:
+            bijlagen.append((naam, data, mime))
         verstuur_email(factuur["klant_email"], f"Factuur {factuur['factuurnummer']}", html, bijlagen)
         nu = date.today().isoformat()
         db.execute("UPDATE facturen SET status='verzonden', verzonden_op=? WHERE id=? AND status NOT IN ('betaald')",
