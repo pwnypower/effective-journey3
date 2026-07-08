@@ -832,10 +832,14 @@ def _merge_jinja2_runs(docx_element):
 
 def genereer_word_via_template(factuur, regels, bek, s):
     """Fill factuur_template.docx with invoice data via docxtpl."""
-    tpl = DocxTemplate(TEMPLATE_PAD)
+    # Laad template via python-docx, merge gesplitste Jinja2-runs, sla op in buffer
+    doc_raw = DocxDoc(TEMPLATE_PAD)
+    _merge_jinja2_runs(doc_raw.element)
+    merged = io.BytesIO()
+    doc_raw.save(merged)
+    merged.seek(0)
 
-    # Samenvoegen van door Word gesplitste Jinja2-tags vóór rendering
-    _merge_jinja2_runs(tpl.docx.element)
+    tpl = DocxTemplate(merged)
 
     regels_ctx = []
     for r in regels:

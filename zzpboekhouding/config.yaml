@@ -1,6 +1,6 @@
 name: "ZZP Boekhouding"
 description: "Lokale boekhoud-webapp voor ZZP'ers: klanten, facturen, uitgaven, BTW-overzicht en Mollie-koppeling."
-version: "2.2.5"
+version: "2.2.6"
 slug: "zzpboekhouding"
 init: false
 arch:
