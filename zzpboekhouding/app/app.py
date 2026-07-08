@@ -394,9 +394,16 @@ def docx_naar_pdf(docx_bytes: bytes) -> bytes | None:
 
 def genereer_factuur_bijlage(factuur_id):
     """Genereert factuur als PDF-bytes (via docx→pdf). Fallback: docx-bytes."""
+    import logging, traceback
     if not HAS_DOCXTPL:
+        logging.warning("genereer_factuur_bijlage: docxtpl niet beschikbaar")
         return None, None, None
     try:
+        # Zorg dat template bestaat
+        _maak_default_template()
+        if not os.path.exists(TEMPLATE_PAD):
+            logging.warning("genereer_factuur_bijlage: template niet gevonden op %s", TEMPLATE_PAD)
+            return None, None, None
         db = get_db()
         factuur = db.execute(
             "SELECT f.*, k.naam AS naam, k.adres AS adres, k.postcode AS postcode, "
@@ -416,8 +423,12 @@ def genereer_factuur_bijlage(factuur_id):
         pdf = docx_naar_pdf(docx_bytes)
         if pdf:
             return f"factuur_{nr}.pdf", pdf, "application/pdf"
-        return f"factuur_{nr}.docx", docx_bytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        # LibreOffice niet beschikbaar — stuur docx
+        logging.info("genereer_factuur_bijlage: LibreOffice niet beschikbaar, bijlage als .docx")
+        mime_docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        return f"factuur_{nr}.docx", docx_bytes, mime_docx
     except Exception:
+        logging.error("genereer_factuur_bijlage mislukt:\n%s", traceback.format_exc())
         return None, None, None
 
 
@@ -1271,7 +1282,8 @@ def factuur_versturen(fid):
         db.execute("UPDATE facturen SET status='verzonden', verzonden_op=? WHERE id=? AND status NOT IN ('betaald')",
                    (nu, fid))
         db.commit()
-        flash(f"Factuur verstuurd naar {factuur['klant_email']}.", "success")
+        bijlage_info = f" (bijlage: {naam})" if naam else " (geen bijlage)"
+        flash(f"Factuur verstuurd naar {factuur['klant_email']}{bijlage_info}.", "success")
     except Exception as e:
         flash(f"E-mail mislukt: {type(e).__name__}: {e}", "danger")
     return redirect(url_for("factuur_bekijken", fid=fid))
