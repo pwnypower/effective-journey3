@@ -748,9 +748,90 @@ def _maak_default_template():
     doc.save(TEMPLATE_PAD)
 
 
+def _cel_tekst(row, idx):
+    """Geeft de volledige tekst van een tabelcel terug (alle runs samengevoegd)."""
+    try:
+        return "".join(p.text for p in row.cells[idx].paragraphs)
+    except IndexError:
+        return ""
+
+
+def _zet_cel_tekst(cell, tekst, kopieer_van_cel=None):
+    """Zet celinhoud op tekst; behoudt opmaak van kopieer_van_cel indien opgegeven."""
+    from docx.oxml.ns import qn as _qn
+    from copy import deepcopy as _dc
+    para = cell.paragraphs[0]
+    for run in para.runs:
+        run.text = ""
+    if para.runs:
+        para.runs[0].text = tekst
+    else:
+        run = para.add_run(tekst)
+        if kopieer_van_cel and kopieer_van_cel.paragraphs[0].runs:
+            run._r.append(_dc(kopieer_van_cel.paragraphs[0].runs[0]._r.find(_qn("w:rPr"))))
+
+
+def _expand_tr_loop(tbl, zoekterm, rijen_data, veld_map):
+    """
+    Vindt de {%tr for ... %} / {%tr endfor %} rijen in een tabel en vervangt
+    ze door echte datarijen via python-docx XML — zodat Word-opmaak de tags
+    niet meer kan breken.
+    veld_map: dict van kolomindex → callable(row_dict) → str
+    """
+    from copy import deepcopy
+    from docx.oxml.ns import qn
+
+    start_idx = end_idx = None
+    for i, row in enumerate(tbl.rows):
+        rij_tekst = " ".join(_cel_tekst(row, c) for c in range(len(row.cells)))
+        if zoekterm in rij_tekst and start_idx is None:
+            start_idx = i
+        elif "endfor" in rij_tekst and start_idx is not None and end_idx is None:
+            end_idx = i
+            break
+
+    if start_idx is None:
+        return  # loop niet gevonden — niets doen
+
+    tbl_el = tbl._tbl
+    alle_rijen = tbl_el.findall(qn("w:tr"))
+    template_tr = alle_rijen[start_idx]
+    end_tr = alle_rijen[end_idx] if end_idx is not None else None
+
+    insert_pos = list(tbl_el).index(template_tr)
+
+    for regel in rijen_data:
+        new_tr = deepcopy(template_tr)
+        cellen = new_tr.findall(".//" + qn("w:tc"))
+        for col_idx, waarde_fn in veld_map.items():
+            if col_idx >= len(cellen):
+                continue
+            cel = cellen[col_idx]
+            # Verwijder alle runs en zet nieuwe tekst
+            for p_el in cel.findall(".//" + qn("w:p")):
+                for r_el in p_el.findall(qn("w:r")):
+                    # Bewaar opmaak (rPr), vervang tekst
+                    t_els = r_el.findall(qn("w:t"))
+                    for t_el in t_els:
+                        t_el.text = ""
+                    if t_els:
+                        t_els[0].text = waarde_fn(regel)
+                        t_els[0].set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+                    break  # eerste run is genoeg
+                break  # eerste paragraaf
+        tbl_el.insert(insert_pos, new_tr)
+        insert_pos += 1
+
+    tbl_el.remove(template_tr)
+    if end_tr is not None:
+        tbl_el.remove(end_tr)
+
+
 def genereer_word_via_template(factuur, regels, bek, s):
-    """Fill factuur_template.docx with invoice data via docxtpl."""
+    """Fill factuur_template.docx with invoice data via docxtpl + python-docx tabelinjectie."""
     tpl = DocxTemplate(TEMPLATE_PAD)
+
+    # Bouw regeldata
     regels_ctx = []
     for r in regels:
         bedrag = r["aantal"] * r["prijs_per_stuk"]
@@ -766,7 +847,6 @@ def genereer_word_via_template(factuur, regels, bek, s):
             "btw_pct": int(r["btw_percentage"]),
             "totaal": f"{bedrag:.2f}",
             "periode": periode,
-            "heeft_periode": bool(periode),
         })
     btw_regels = [
         {"tarief": int(t), "bedrag": f"{b:.2f}"}
@@ -778,6 +858,24 @@ def genereer_word_via_template(factuur, regels, bek, s):
         f"BTW-nr: {s['btwnummer']}" if s.get("btwnummer") else None,
         f"KvK: {s['kvk']}" if s.get("kvk") else None,
     ]))
+
+    # Injecteer tabelrijen VOOR docxtpl.render() — zo breekt Word-opmaak de tags niet
+    for tbl in tpl.tables:
+        # Factuurregels-tabel
+        _expand_tr_loop(tbl, "regels", regels_ctx, {
+            0: lambda r: r["omschrijving"],
+            1: lambda r: r["aantal"],
+            2: lambda r: r["eenheid"],
+            3: lambda r: r["prijs"],
+            4: lambda r: f"{r['btw_pct']}%",
+            5: lambda r: r["totaal"],
+        })
+        # BTW-regels tabel
+        _expand_tr_loop(tbl, "btw_regels", btw_regels, {
+            0: lambda r: f"BTW {r['tarief']}%",
+            1: lambda r: f"€ {r['bedrag']}",
+        })
+
     ctx = {
         "bedrijfsnaam": s.get("bedrijfsnaam", ""),
         "bedrijf_adres": s.get("adres", ""),
@@ -786,19 +884,19 @@ def genereer_word_via_template(factuur, regels, bek, s):
         "btwnummer": s.get("btwnummer", ""),
         "iban": s.get("iban", ""),
         "factuurnummer": factuur["factuurnummer"],
-        "factuurdatum": factuur["factuurdatum"],
-        "vervaldatum": factuur["vervaldatum"],
+        "factuurdatum": nl_datum(factuur["factuurdatum"]),
+        "vervaldatum": nl_datum(factuur["vervaldatum"]),
         "projectnummer": _reg_val(factuur, "projectnummer") or "",
         "referentie": _reg_val(factuur, "referentie") or "",
         "klant_naam": factuur["naam"],
         "klant_adres": _reg_val(factuur, "adres") or "",
         "klant_postcode_stad": f"{_reg_val(factuur,'postcode') or ''} {_reg_val(factuur,'plaats') or ''}".strip(),
         "klant_btw_nummer": _reg_val(factuur, "btw_nummer") or "",
-        "regels": regels_ctx,
+        "regels": [],       # al ingevuld via _expand_tr_loop
+        "btw_regels": [],   # al ingevuld via _expand_tr_loop
         "subtotaal": f"{bek['subtotaal']:.2f}",
         "korting_bedrag": f"{bek['korting_bedrag']:.2f}",
         "has_korting": bek["korting_bedrag"] > 0,
-        "btw_regels": btw_regels,
         "btw_totaal": f"{bek['btw_totaal']:.2f}",
         "totaal": f"{bek['totaal']:.2f}",
         "notities": _reg_val(factuur, "notities") or "",
