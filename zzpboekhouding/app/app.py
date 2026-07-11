@@ -788,59 +788,92 @@ def _maak_default_template():
     doc.save(TEMPLATE_PAD)
 
 
-def _merge_jinja2_runs(docx_element):
+def _inject_tabel_rijen(doc, regels_ctx, btw_regels):
     """
-    Word knipt soms Jinja2-tags ({%...%} en {{...}}) op over meerdere XML-runs.
-    Deze functie voegt die runs samen zodat docxtpl de tags correct kan verwerken.
+    Vervangt {%tr for ... %} / {%tr endfor %} rijen in tabellen
+    door echte datarijen via python-docx XML — omzeilt docxtpl {%tr %} parsing.
     """
+    from copy import deepcopy
+    from lxml import etree
     NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
     XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
-    p_tag = f"{{{NS}}}p"
-    r_tag = f"{{{NS}}}r"
-    t_tag = f"{{{NS}}}t"
-    rpr_tag = f"{{{NS}}}rPr"
+    tc_tag  = f"{{{NS}}}tc"
+    p_tag   = f"{{{NS}}}p"
+    r_tag   = f"{{{NS}}}r"
+    t_tag   = f"{{{NS}}}t"
+    tr_tag  = f"{{{NS}}}tr"
 
-    for para in docx_element.iter(p_tag):
-        runs = para.findall(r_tag)
-        if len(runs) < 2:
-            continue
-        # Samengestelde tekst van alle runs in deze paragraaf
-        full_text = ""
-        for run in runs:
-            for t in run.findall(t_tag):
-                full_text += t.text or ""
-        if "{%" not in full_text and "{{" not in full_text:
-            continue
-        # Samenvoegen: eerste run krijgt alle tekst, rest wordt verwijderd
-        first_run = runs[0]
-        rpr = first_run.find(rpr_tag)
-        # Verwijder bestaande t-elementen uit eerste run
-        for t in first_run.findall(t_tag):
-            first_run.remove(t)
-        from lxml import etree
-        t_new = etree.SubElement(first_run, t_tag)
-        t_new.text = full_text
-        t_new.set(XML_SPACE, "preserve")
-        # Bewaar rPr (opmaak) als die er was
-        if rpr is not None:
-            first_run.remove(rpr)
-            first_run.insert(0, rpr)
-        # Verwijder overige runs uit de paragraaf
-        for run in runs[1:]:
-            para.remove(run)
+    def _rij_tekst(tr_el):
+        return " ".join(
+            "".join(t.text or "" for t in tc.iter(t_tag))
+            for tc in tr_el.findall(tc_tag)
+        )
+
+    def _zet_cel(tc_el, waarde):
+        """Vervangt celinhoud door waarde in de eerste paragraaf/run."""
+        for p in tc_el.findall(p_tag):
+            # Bewaar bestaande opmaak: kopieer rPr van eerste run als die er is
+            bestaande_runs = p.findall(r_tag)
+            rpr_copy = None
+            if bestaande_runs:
+                rpr = bestaande_runs[0].find(f"{{{NS}}}rPr")
+                if rpr is not None:
+                    from copy import deepcopy as _dc
+                    rpr_copy = _dc(rpr)
+                for r in bestaande_runs:
+                    p.remove(r)
+            # Nieuwe run met waarde
+            r_new = etree.SubElement(p, r_tag)
+            if rpr_copy is not None:
+                r_new.insert(0, rpr_copy)
+            t_new = etree.SubElement(r_new, t_tag)
+            t_new.text = waarde
+            t_new.set(XML_SPACE, "preserve")
+            break  # Alleen eerste paragraaf
+
+    def _expand(tbl_el, zoek, data, veld_fns):
+        rows = tbl_el.findall(tr_tag)
+        template_tr = endfor_tr = None
+        for tr in rows:
+            txt = _rij_tekst(tr)
+            if template_tr is None and zoek in txt:
+                template_tr = tr
+            elif template_tr is not None and "endfor" in txt:
+                endfor_tr = tr
+                break
+        if template_tr is None:
+            return
+        pos = list(tbl_el).index(template_tr)
+        for item in data:
+            new_tr = deepcopy(template_tr)
+            cellen = new_tr.findall(tc_tag)
+            for i, fn in enumerate(veld_fns):
+                if i < len(cellen):
+                    _zet_cel(cellen[i], fn(item))
+            tbl_el.insert(pos, new_tr)
+            pos += 1
+        tbl_el.remove(template_tr)
+        if endfor_tr is not None:
+            tbl_el.remove(endfor_tr)
+
+    for tbl in doc.tables:
+        tbl_el = tbl._tbl
+        _expand(tbl_el, "for r in regels", regels_ctx, [
+            lambda r: r["omschrijving"],
+            lambda r: r["aantal"],
+            lambda r: r["eenheid"],
+            lambda r: r["prijs"],
+            lambda r: f"{r['btw_pct']}%",
+            lambda r: r["totaal"],
+        ])
+        _expand(tbl_el, "for b in btw_regels", btw_regels, [
+            lambda b: f"BTW {b['tarief']}%",
+            lambda b: f"€ {b['bedrag']}",
+        ])
 
 
 def genereer_word_via_template(factuur, regels, bek, s):
-    """Fill factuur_template.docx with invoice data via docxtpl."""
-    # Laad template via python-docx, merge gesplitste Jinja2-runs, sla op in buffer
-    doc_raw = DocxDoc(TEMPLATE_PAD)
-    _merge_jinja2_runs(doc_raw.element)
-    merged = io.BytesIO()
-    doc_raw.save(merged)
-    merged.seek(0)
-
-    tpl = DocxTemplate(merged)
-
+    """Fill factuur_template.docx with invoice data via docxtpl + python-docx row injection."""
     regels_ctx = []
     for r in regels:
         bedrag = r["aantal"] * r["prijs_per_stuk"]
@@ -863,6 +896,15 @@ def genereer_word_via_template(factuur, regels, bek, s):
         for t, b in sorted(bek["btw_per_tarief"].items())
         if b > 0.001
     ]
+
+    # Laad template via python-docx en injecteer tabelrijen direct (omzeilt docxtpl {%tr %})
+    doc_raw = DocxDoc(TEMPLATE_PAD)
+    _inject_tabel_rijen(doc_raw, regels_ctx, btw_regels)
+    merged = io.BytesIO()
+    doc_raw.save(merged)
+    merged.seek(0)
+
+    tpl = DocxTemplate(merged)
     betaalinfo = " | ".join(filter(None, [
         f"IBAN: {s['iban']}" if s.get("iban") else None,
         f"BTW-nr: {s['btwnummer']}" if s.get("btwnummer") else None,
