@@ -5,9 +5,32 @@
   <a href="{{ url_for('uitgaven') }}" class="btn-ghost">ANNULEREN</a>
 {% endblock %}
 {% block content %}
+<style>
+  .tag-bar { display:flex; flex-wrap:wrap; gap:6px; margin:14px 0 10px; }
+  .tag-chip { font-family:var(--font-mono); font-size:10px; letter-spacing:0.05em; padding:6px 10px;
+              border:1px solid var(--border); background:transparent; color:var(--text); cursor:pointer; border-radius:2px; }
+  .tag-chip .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+  .tag-chip.actief { border-color:var(--amber); color:var(--amber); }
+  .viewer { border:1px solid var(--border); overflow:auto; max-height:75vh; background:#fff; }
+  .viewer-inner { width:100%; }
+  .viewer.zoom .viewer-inner { width:200%; }
+  .pagina { position:relative; border-bottom:2px solid var(--border); }
+  .pagina img { display:block; width:100%; height:auto; }
+  .pagina.zonder-img { min-height:120px; background:#fafafa; }
+  .wrd { position:absolute; cursor:pointer; border-radius:1px; }
+  .wrd:hover { outline:1px solid #f0a500; background:rgba(240,165,0,0.15); }
+  .pagina.zonder-img .wrd { font-size:9px; color:#333; overflow:hidden; white-space:nowrap; }
+  .regels-tabel { width:100%; border-collapse:collapse; }
+  .regels-tabel td { padding:4px 4px 4px 0; vertical-align:top; }
+  .regels-tabel input, .regels-tabel select { width:100%; }
+  .bron { font-family:var(--font-mono); font-size:9px; color:var(--amber); margin-left:6px; }
+</style>
 
-<div style="max-width:680px">
+<div style="max-width:900px">
 <form method="POST" enctype="multipart/form-data" id="uitgave-form">
+  <input type="hidden" name="leer_data" id="leer_data">
+  <input type="hidden" name="ocr_gebruikt" id="ocr_gebruikt">
+
   <div class="panel">
     <div class="panel-title">FACTUUR / BON UPLOADEN</div>
     {% if uitgave and uitgave.bijlage_pad %}
@@ -25,51 +48,70 @@
       <input type="file" name="bijlage" id="bijlage" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.webp,.bmp,.gif,application/pdf,image/*">
     </div>
     <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
-      <button type="button" class="btn-sec" id="ocr-btn" disabled
-              {% if not ocr_beschikbaar and not pdf_beschikbaar %}title="OCR niet beschikbaar op deze installatie"{% endif %}>⌕ UITLEZEN MET OCR</button>
+      <button type="button" class="btn-sec" id="ocr-btn" disabled>⌕ UITLEZEN &amp; TAGGEN</button>
       <span class="mono" id="ocr-status" style="font-size:10px;color:var(--muted)">
-        Het bestand wordt altijd als bijlage bij de uitgave bewaard. Met OCR worden de velden hieronder automatisch voorgevuld — controleer ze altijd.
+        Het bestand wordt altijd als bijlage bewaard. Met OCR worden de velden voorgevuld; klopt iets niet, tag dan de juiste tekst op de factuur.
       </span>
     </div>
-    <details id="ocr-tekst-wrap" style="display:none;margin-top:12px">
-      <summary class="mono" style="font-size:10px;color:var(--muted);cursor:pointer">HERKENDE TEKST TONEN</summary>
-      <pre id="ocr-tekst" class="mono" style="font-size:10px;white-space:pre-wrap;max-height:240px;overflow:auto;color:var(--muted);margin-top:8px"></pre>
-    </details>
+
+    <div id="tag-wrap" style="display:none">
+      <div class="mono" id="profiel-info" style="font-size:10px;color:var(--muted);margin-top:14px"></div>
+      <div class="tag-bar" id="tag-bar"></div>
+      <div class="mono" style="font-size:10px;color:var(--muted);margin-bottom:8px">
+        Kies een veld en tik op de factuur de juiste woorden aan (nogmaals tikken = weghalen).
+        Bij <b>REGEL</b> tik je een woord op een factuurregel aan; de hele regel wordt toegevoegd.
+        <button type="button" class="btn-ghost" id="zoom-btn" style="font-size:10px;padding:2px 6px">⊕ ZOOM</button>
+        <button type="button" class="btn-ghost" id="wis-tags" style="font-size:10px;padding:2px 6px">✕ TAGS WISSEN</button>
+      </div>
+      <div class="viewer" id="viewer"><div class="viewer-inner" id="viewer-inner"></div></div>
+      <label class="mono" style="display:flex;gap:8px;align-items:center;font-size:10px;color:var(--muted);margin-top:10px">
+        <input type="checkbox" name="leer_onthouden" value="1" checked>
+        ONTHOUD DEZE CORRECTIES VOOR DEZE LEVERANCIER (volgende factuur wordt dan zo uitgelezen)
+      </label>
+      <details style="margin-top:10px">
+        <summary class="mono" style="font-size:10px;color:var(--muted);cursor:pointer">HERKENDE TEKST TONEN</summary>
+        <pre id="ocr-tekst" class="mono" style="font-size:10px;white-space:pre-wrap;max-height:240px;overflow:auto;color:var(--muted);margin-top:8px"></pre>
+      </details>
+    </div>
   </div>
 
   <div class="panel">
     <div class="panel-title">UITGAVEGEGEVENS</div>
     <div class="fg fg2">
       <div class="field">
-        <label>DATUM *</label>
+        <label>DATUM *<span class="bron" data-bron="datum"></span></label>
         <input type="date" name="datum" value="{{ uitgave.datum if uitgave else vandaag }}" required>
       </div>
       <div class="field">
-        <label>CATEGORIE</label>
+        <label>CATEGORIE<span class="bron" data-bron="categorie"></span></label>
         <select name="categorie">
           {% for cat in ['Kantoorkosten','Software/abonnementen','Reiskosten','Marketing','Materiaal/inventaris','Telefoon/internet','Verzekeringen','Overig'] %}
           <option value="{{ cat }}" {{ 'selected' if uitgave and uitgave.categorie == cat }}>{{ cat }}</option>
           {% endfor %}
         </select>
       </div>
+      <div class="field">
+        <label>LEVERANCIER<span class="bron" data-bron="leverancier"></span></label>
+        <input type="text" name="leverancier" value="{{ uitgave.leverancier if uitgave and uitgave.leverancier else '' }}">
+      </div>
+      <div class="field">
+        <label>FACTUURNUMMER<span class="bron" data-bron="factuurnummer"></span></label>
+        <input type="text" name="factuurnummer" value="{{ uitgave.factuurnummer if uitgave and uitgave.factuurnummer else '' }}">
+      </div>
       <div class="field" style="grid-column:span 2">
-        <label>OMSCHRIJVING *</label>
+        <label>OMSCHRIJVING *<span class="bron" data-bron="omschrijving"></span></label>
         <input type="text" name="omschrijving" value="{{ uitgave.omschrijving if uitgave else '' }}" required>
       </div>
       <div class="field">
-        <label>FACTUURNUMMER</label>
-        <input type="text" name="factuurnummer" value="{{ uitgave.factuurnummer if uitgave and uitgave.factuurnummer else '' }}">
+        <label>TOTAAL INCL. BTW (rekent excl. uit)<span class="bron" data-bron="totaal_incl_btw"></span></label>
+        <input type="number" name="totaal_incl_btw" id="totaal_incl_btw" value="{{ uitgave.totaal_incl_btw if uitgave and uitgave.totaal_incl_btw is not none else '' }}" step="0.01">
       </div>
       <div class="field">
-        <label>TOTAAL INCL. BTW (rekent excl. uit)</label>
-        <input type="number" name="totaal_incl_btw" id="totaal_incl_btw" value="{{ uitgave.totaal_incl_btw if uitgave and uitgave.totaal_incl_btw is not none else '' }}" step="0.01" min="0">
+        <label>BEDRAG EXCL. BTW *<span class="bron" data-bron="bedrag_excl_btw"></span></label>
+        <input type="number" name="bedrag_excl_btw" value="{{ uitgave.bedrag_excl_btw if uitgave else '' }}" step="0.01" required>
       </div>
       <div class="field">
-        <label>BEDRAG EXCL. BTW *</label>
-        <input type="number" name="bedrag_excl_btw" value="{{ uitgave.bedrag_excl_btw if uitgave else '' }}" step="0.01" min="0" required>
-      </div>
-      <div class="field">
-        <label>BTW %</label>
+        <label>BTW %<span class="bron" data-bron="btw_percentage"></span></label>
         <select name="btw_percentage">
           {% for p in [21, 9, 0] %}
           <option value="{{ p }}" {{ 'selected' if uitgave and uitgave.btw_percentage == p or (not uitgave and p == 21) }}>{{ p }}%</option>
@@ -77,17 +119,25 @@
         </select>
       </div>
       <div class="field">
-        <label>ZAKELIJK GEBRUIK % (100 = volledig zakelijk)</label>
+        <label>ZAKELIJK GEBRUIK % (100 = volledig zakelijk)<span class="bron" data-bron="zakelijk_percentage"></span></label>
         <input type="number" name="zakelijk_percentage" value="{{ uitgave.zakelijk_percentage if uitgave else '100' }}" min="0" max="100">
-      </div>
-      <div class="field">
-        <label>LEVERANCIER</label>
-        <input type="text" name="leverancier" value="{{ uitgave.leverancier if uitgave else '' }}">
       </div>
     </div>
     <div class="field" style="margin-top:16px">
       <label>NOTITIES</label>
-      <textarea name="notities">{{ uitgave.notities if uitgave else '' }}</textarea>
+      <textarea name="notities">{{ uitgave.notities if uitgave and uitgave.notities else '' }}</textarea>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">FACTUURREGELS <span style="color:var(--muted)">(optioneel — bij meerdere regels/btw-tarieven)</span></div>
+    <table class="regels-tabel">
+      <tbody id="regels-body"></tbody>
+    </table>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+      <button type="button" class="btn-sec" id="regel-toevoegen">⊕ REGEL</button>
+      <button type="button" class="btn-ghost" id="regels-incl" style="display:none;font-size:10px" title="Rekent alle regelbedragen om van incl. naar excl. btw">÷ BEDRAGEN WAREN INCL. BTW</button>
+      <span class="mono" id="regels-info" style="font-size:10px;color:var(--muted)"></span>
     </div>
   </div>
 
@@ -110,62 +160,419 @@
   const totaal = document.getElementById('totaal_incl_btw');
   const excl = form.elements['bedrag_excl_btw'];
   const btw = form.elements['btw_percentage'];
+  const regelsBody = document.getElementById('regels-body');
   const ocrMogelijk = {{ 'true' if ocr_beschikbaar or pdf_beschikbaar else 'false' }};
+  const bestaandeBijlage = {{ (url_for('uitgave_bijlage', uid=uitgave.id) if uitgave and uitgave.bijlage_pad else none)|tojson }};
+  const bestaandeNaam = {{ ((uitgave.bijlage_naam or '') if uitgave and uitgave.bijlage_pad else '')|tojson }};
+  const ocrUrlNieuw = {{ url_for('uitgave_ocr')|tojson }};
+  const ocrUrlBestaand = {{ (url_for('uitgave_ocr', uid=uitgave.id) if uitgave else none)|tojson }};
 
+  const VELDEN = [
+    ['leverancier', 'LEVERANCIER', '#4aa3ff'],
+    ['datum', 'DATUM', '#b07cff'],
+    ['factuurnummer', 'FACTUURNR', '#ff7ab6'],
+    ['omschrijving', 'OMSCHRIJVING', '#4cd1a0'],
+    ['totaal_incl_btw', 'TOTAAL INCL.', '#f0a500'],
+    ['bedrag_excl_btw', 'EXCL. BTW', '#e6c229'],
+    ['btw_bedrag', 'BTW-BEDRAG', '#ff8c42'],
+    ['regel', 'REGEL', '#2fbf71'],
+  ];
+  const KLEUR = Object.fromEntries(VELDEN.map(v => [v[0], v[2]]));
+  const BEDRAGVELDEN = ['totaal_incl_btw', 'bedrag_excl_btw', 'btw_bedrag'];
+
+  // ── Bedragen & datums (zelfde regels als ocr.py) ──────────────────────────
+  const BEDRAG_RE = /(\d{1,3}(?:[.\s]\d{3})+,\d{2}|\d{1,3}(?:,\d{3})+\.\d{2}|\d+[.,]\d{2}|\d+,-)(?!\d)/g;
+  const PCT_RE = /(?:^|[^\d])(21|9|6|0)(?:[.,]0+)?\s*%/;
+  function parseBedrag(s) {
+    s = s.replace(/[\s\u00a0]/g, '');
+    if (s.endsWith(',-')) s = s.slice(0, -2);
+    else if (/,\d{2}$/.test(s)) s = s.replace(/\./g, '').replace(',', '.');
+    else s = s.replace(/,/g, '');
+    const n = parseFloat(s);
+    return isNaN(n) ? null : Math.round(n * 100) / 100;
+  }
+  function bedragenIn(t) {
+    t = t.replace(/(21|9|6|0)(?:[.,]0+)?\s*%/g, ' ');
+    return [...t.matchAll(BEDRAG_RE)].map(m => parseBedrag(m[1])).filter(b => b !== null);
+  }
+  const MAANDEN = {jan:1,januari:1,january:1,feb:2,februari:2,february:2,mrt:3,maart:3,mar:3,march:3,
+    apr:4,april:4,mei:5,may:5,jun:6,juni:6,june:6,jul:7,juli:7,july:7,aug:8,augustus:8,august:8,
+    sep:9,sept:9,september:9,okt:10,oktober:10,oct:10,october:10,nov:11,november:11,dec:12,december:12};
+  function datumIn(t) {
+    let m, j, mnd, d;
+    if ((m = t.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/))) [j, mnd, d] = [+m[1], +m[2], +m[3]];
+    else if ((m = t.match(/\b(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})\b/))) [d, mnd, j] = [+m[1], +m[2], +m[3]];
+    else if ((m = t.match(/\b(\d{1,2})\s+([a-zA-Z]{3,9})\.?\s+(\d{4})\b/)) && MAANDEN[m[2].toLowerCase()])
+      [d, mnd, j] = [+m[1], MAANDEN[m[2].toLowerCase()], +m[3]];
+    else return null;
+    if (j < 100) j += 2000;
+    if (mnd < 1 || mnd > 12 || d < 1 || d > 31) return null;
+    return `${j}-${String(mnd).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+
+  // ── Excl./totaal rekenhulp ────────────────────────────────────────────────
   function herbereken() {
+    if (regelsBody.children.length) return;
     const t = parseFloat(totaal.value);
     if (!isNaN(t)) excl.value = (t / (1 + parseFloat(btw.value) / 100)).toFixed(2);
   }
   totaal.addEventListener('input', herbereken);
   btw.addEventListener('change', () => { if (totaal.value) herbereken(); });
 
-  fileIn.addEventListener('change', () => { btn.disabled = !ocrMogelijk || !fileIn.files.length; });
+  // ── Factuurregels ─────────────────────────────────────────────────────────
+  function regelRij(r = {}) {
+    const tr = document.createElement('tr');
+    const pct = r.btw_percentage ?? parseInt(btw.value);
+    tr.innerHTML = `
+      <td style="width:55%"><input type="text" name="regel_omschrijving" placeholder="Omschrijving"></td>
+      <td style="width:20%"><input type="number" name="regel_bedrag" step="0.01" placeholder="Excl. btw"></td>
+      <td style="width:15%"><select name="regel_btw">${[21, 9, 0].map(p => `<option value="${p}" ${p == pct ? 'selected' : ''}>${p}%</option>`).join('')}</select></td>
+      <td style="width:10%"><button type="button" class="btn-icon d" title="Regel verwijderen">✕</button></td>`;
+    tr.querySelector('[name=regel_omschrijving]').value = r.omschrijving || '';
+    if (r.bedrag_excl_btw !== undefined && r.bedrag_excl_btw !== null)
+      tr.querySelector('[name=regel_bedrag]').value = Number(r.bedrag_excl_btw).toFixed(2);
+    tr.querySelector('button').onclick = () => {
+      if (tr.dataset.rij) { delete regelTags[tr.dataset.rij]; tekenTags(); }
+      tr.remove(); regelsBijgewerkt();
+    };
+    tr.addEventListener('input', regelsBijgewerkt);
+    tr.addEventListener('change', regelsBijgewerkt);
+    regelsBody.appendChild(tr);
+    return tr;
+  }
+  function regelsBijgewerkt() {
+    const rijen = [...regelsBody.children];
+    const info = document.getElementById('regels-info');
+    document.getElementById('regels-incl').style.display = rijen.length ? '' : 'none';
+    excl.readOnly = btw.disabled = rijen.length > 0;
+    if (!rijen.length) { info.textContent = ''; return; }
+    let e = 0, b = 0;
+    rijen.forEach(tr => {
+      const v = parseFloat(tr.querySelector('[name=regel_bedrag]').value) || 0;
+      const p = parseFloat(tr.querySelector('[name=regel_btw]').value) || 0;
+      e += v; b += v * p / 100;
+    });
+    excl.value = e.toFixed(2);
+    const groot = rijen.reduce((a, tr) => Math.abs(parseFloat(tr.querySelector('[name=regel_bedrag]').value) || 0) >
+      Math.abs(parseFloat(a.querySelector('[name=regel_bedrag]').value) || 0) ? tr : a);
+    btw.value = groot.querySelector('[name=regel_btw]').value;
+    let tekst = `${rijen.length} regel(s): excl. € ${e.toFixed(2)} + btw € ${b.toFixed(2)} = € ${(e + b).toFixed(2)}`;
+    const t = parseFloat(totaal.value);
+    if (!isNaN(t) && Math.abs(t - (e + b)) > 0.05) tekst += ` — wijkt af van totaal € ${t.toFixed(2)}`;
+    info.textContent = tekst;
+    info.style.color = (!isNaN(t) && Math.abs(t - (e + b)) > 0.05) ? 'var(--amber)' : 'var(--muted)';
+  }
+  document.getElementById('regel-toevoegen').onclick = () => { regelRij().querySelector('input').focus(); regelsBijgewerkt(); };
+  document.getElementById('regels-incl').onclick = () => {
+    [...regelsBody.children].forEach(tr => {
+      const inp = tr.querySelector('[name=regel_bedrag]');
+      const p = parseFloat(tr.querySelector('[name=regel_btw]').value) || 0;
+      const v = parseFloat(inp.value);
+      if (!isNaN(v)) inp.value = (v / (1 + p / 100)).toFixed(2);
+    });
+    regelsBijgewerkt();
+  };
+  // btw% wordt bij regels berekend, maar moet wel mee in het formulier
+  form.addEventListener('submit', () => { btw.disabled = false; });
+  {{ regels|tojson }}.forEach(r => regelRij(r));
+  regelsBijgewerkt();
 
-  function zet(naam, waarde, overschrijf) {
+  // ── Uitlezen ──────────────────────────────────────────────────────────────
+  let doc = null, woorden = {}, rijen = {};
+  let actief = 'leverancier';
+  let tags = {};          // veld -> Set(woord-id)
+  let regelTags = {};     // "p:r" -> true
+  let regelsHandmatig = false;
+
+  function knopStatus() { btn.disabled = !ocrMogelijk || (!fileIn.files.length && !bestaandeBijlage); }
+  fileIn.addEventListener('change', knopStatus);
+  knopStatus();
+
+  function zet(naam, waarde, bron) {
     const el = form.elements[naam];
     if (!el || waarde === undefined || waarde === null || waarde === '') return false;
-    if (!overschrijf && el.value) return false;
     el.value = waarde;
     el.style.outline = '1px solid var(--amber)';
+    const b = document.querySelector(`[data-bron="${naam}"]`);
+    if (b) b.textContent = bron === 'geleerd' ? '● GELEERD' : bron === 'standaard' ? '○ VORIGE KEER' : bron === 'getagd' ? '◆ GETAGD' : '';
     return true;
   }
 
   btn.addEventListener('click', async () => {
-    if (!fileIn.files.length) return;
     const fd = new FormData();
-    fd.append('bijlage', fileIn.files[0]);
+    let url = ocrUrlNieuw, bron = null, naam = '';
+    if (fileIn.files.length) { fd.append('bijlage', fileIn.files[0]); bron = fileIn.files[0]; naam = bron.name; }
+    else if (bestaandeBijlage) { url = ocrUrlBestaand; naam = bestaandeNaam; }
+    else return;
     btn.disabled = true;
     status.style.color = 'var(--muted)';
     status.textContent = 'Bezig met uitlezen… (scans kunnen even duren)';
     try {
-      const r = await fetch('{{ url_for('uitgave_ocr') }}', { method: 'POST', body: fd });
+      const r = await fetch(url, { method: 'POST', body: fd });
       const d = await r.json();
       if (!d.ok) throw new Error(d.fout || 'Onbekende fout');
-      const v = d.velden || {};
-      let n = 0;
-      n += zet('datum', v.datum, true);
-      n += zet('leverancier', v.leverancier, false);
-      n += zet('factuurnummer', v.factuurnummer, true);
-      if (v.btw_percentage !== undefined) n += zet('btw_percentage', String(v.btw_percentage), true);
-      n += zet('totaal_incl_btw', v.totaal_incl_btw, true);
-      if (v.bedrag_excl_btw !== undefined) n += zet('bedrag_excl_btw', v.bedrag_excl_btw.toFixed(2), true);
-      else if (v.totaal_incl_btw !== undefined) { herbereken(); n++; }
-      if (!form.elements['omschrijving'].value) {
-        const oms = 'Factuur ' + (v.leverancier || '') + (v.factuurnummer ? ' ' + v.factuurnummer : '');
-        if (oms.trim() !== 'Factuur') n += zet('omschrijving', oms.trim(), false);
-      }
-      document.getElementById('ocr-tekst').textContent = d.tekst;
-      document.getElementById('ocr-tekst-wrap').style.display = '';
-      status.style.color = n ? 'var(--amber)' : 'var(--muted)';
-      status.textContent = n
-        ? `${n} veld(en) voorgevuld via ${d.methode === 'ocr' ? 'OCR' : 'PDF-tekst'} — controleer de gemarkeerde velden.`
-        : 'Tekst gelezen, maar geen velden herkend. Vul handmatig in; het bestand wordt wel als bijlage bewaard.';
+      doc = d;
+      document.getElementById('ocr_gebruikt').value = '1';
+      const isPdf = /\.pdf$/i.test(naam);
+      const imgSrc = isPdf ? null : (bron ? URL.createObjectURL(bron) : bestaandeBijlage);
+      toonFactuur(d, imgSrc);
+      vulIn(d);
     } catch (e) {
       status.style.color = 'var(--red, #e05252)';
       status.textContent = 'OCR mislukt: ' + e.message + ' Het bestand wordt wel als bijlage opgeslagen.';
     } finally {
-      btn.disabled = !ocrMogelijk;
+      knopStatus();
     }
+  });
+
+  function vulIn(d) {
+    const v = d.velden || {}, b = d.bronnen || {};
+    let n = 0;
+    for (const k of ['datum', 'leverancier', 'factuurnummer', 'omschrijving', 'totaal_incl_btw', 'categorie', 'zakelijk_percentage'])
+      n += zet(k, v[k], b[k]);
+    if (v.btw_percentage !== undefined) n += zet('btw_percentage', String(v.btw_percentage), b.btw_percentage);
+    if (v.bedrag_excl_btw !== undefined) n += zet('bedrag_excl_btw', Number(v.bedrag_excl_btw).toFixed(2), b.bedrag_excl_btw);
+    else if (v.totaal_incl_btw !== undefined) { herbereken(); n++; }
+    if (!form.elements['omschrijving'].value) {
+      const oms = ['Factuur', v.leverancier, v.factuurnummer].filter(Boolean).join(' ');
+      if (oms !== 'Factuur') n += zet('omschrijving', oms, 'herkend');
+    }
+    if (d.regels && d.regels.length) {
+      regelsBody.innerHTML = '';
+      d.regels.forEach(r => regelRij(r));
+      regelsBijgewerkt();
+      n++;
+    }
+    document.getElementById('ocr-tekst').textContent = d.tekst;
+    const p = d.profiel;
+    document.getElementById('profiel-info').innerHTML = p
+      ? `Herkend als <b style="color:var(--amber)">${escapeHtml(p.naam)}</b> — al ${p.aantal}× eerder gecontroleerd. Velden met ● komen uit wat eerder is geleerd.`
+      : 'Nieuwe of onbekende leverancier. Controleer de velden; tag wat niet klopt, dan wordt het onthouden.';
+    status.style.color = n ? 'var(--amber)' : 'var(--muted)';
+    status.textContent = n
+      ? `${n} veld(en) voorgevuld via ${d.methode === 'ocr' ? 'OCR' : 'PDF-tekst'} — controleer de gemarkeerde velden.`
+      : 'Tekst gelezen, maar geen velden herkend. Tag de velden op de factuur hieronder.';
+  }
+
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  // ── Factuur tonen en taggen ───────────────────────────────────────────────
+  function toonFactuur(d, imgSrc) {
+    const inner = document.getElementById('viewer-inner');
+    inner.innerHTML = '';
+    woorden = {}; rijen = {}; tags = {}; regelTags = {}; regelsHandmatig = false;
+    d.paginas.forEach((pag, pi) => {
+      const div = document.createElement('div');
+      div.className = 'pagina';
+      const src = pag.afbeelding || (pi === 0 ? imgSrc : null);
+      if (src) {
+        const img = document.createElement('img');
+        img.src = src;
+        img.onerror = () => { img.remove(); div.classList.add('zonder-img'); zonderImg(div); };
+        div.appendChild(img);
+      } else {
+        div.classList.add('zonder-img');
+      }
+      pag.woorden.forEach(w => {
+        woorden[w.id] = w;
+        (rijen[`${w.p}:${w.r}`] ||= []).push(w);
+        const s = document.createElement('span');
+        s.className = 'wrd';
+        s.dataset.id = w.id;
+        s.title = w.t;
+        Object.assign(s.style, { left: (w.x * 100) + '%', top: (w.y * 100) + '%',
+                                 width: (w.w * 100) + '%', height: (w.h * 100) + '%' });
+        s.onclick = () => klik(w);
+        div.appendChild(s);
+      });
+      if (!src) zonderImg(div);
+      inner.appendChild(div);
+    });
+    // Geleerde vondsten direct als tags tonen
+    for (const [veld, ids] of Object.entries(d.gevonden || {})) {
+      if (veld === 'regels') ids.forEach(id => {
+        const w = woorden[id]; if (!w) return;
+        const rk = `${w.p}:${w.r}`, reg = regelUitRij(rijen[rk] || []);
+        if (reg) regelTags[rk] = reg.bedragWoord.id;
+      });
+      else tags[veld] = new Set(ids);
+    }
+    renderChips();
+    tekenTags();
+    document.getElementById('tag-wrap').style.display = '';
+  }
+  function zonderImg(div) {
+    // Geen afbeelding beschikbaar (bv. TIFF): woorden als tekst tonen
+    const maxY = Math.max(...[...div.querySelectorAll('.wrd')].map(s => parseFloat(s.style.top) + parseFloat(s.style.height)), 10);
+    div.style.height = Math.max(400, maxY * 9) + 'px';
+    div.querySelectorAll('.wrd').forEach(s => { s.textContent = woorden[s.dataset.id].t; });
+  }
+
+  function renderChips() {
+    const bar = document.getElementById('tag-bar');
+    bar.innerHTML = '';
+    VELDEN.forEach(([k, label, kleur]) => {
+      const c = document.createElement('button');
+      c.type = 'button';
+      c.className = 'tag-chip' + (k === actief ? ' actief' : '');
+      c.innerHTML = `<span class="dot" style="background:${kleur}"></span>${label}`;
+      c.onclick = () => { actief = k; renderChips(); };
+      bar.appendChild(c);
+    });
+  }
+
+  function tekenTags() {
+    document.querySelectorAll('.wrd').forEach(s => { s.style.background = ''; s.style.outline = ''; });
+    for (const [veld, ids] of Object.entries(tags))
+      ids.forEach(id => kleurWoord(id, KLEUR[veld]));
+    for (const rk of Object.keys(regelTags))
+      (rijen[rk] || []).forEach(w => kleurWoord(w.id, KLEUR.regel));
+  }
+  function kleurWoord(id, kleur) {
+    const s = document.querySelector(`.wrd[data-id="${id}"]`);
+    if (s) { s.style.background = kleur + '55'; s.style.outline = `1px solid ${kleur}`; }
+  }
+
+  function klik(w) {
+    if (actief === 'regel') return klikRegel(w);
+    const set = (tags[actief] ||= new Set());
+    if (set.has(w.id)) set.delete(w.id); else {
+      // Een woord hoort bij één veld
+      for (const s of Object.values(tags)) s.delete(w.id);
+      set.add(w.id);
+    }
+    tekenTags();
+    pasVeldToe(actief);
+  }
+
+  function gesorteerd(ids) {
+    return [...ids].map(id => woorden[id]).filter(Boolean)
+      .sort((a, b) => a.p - b.p || a.r - b.r || a.x - b.x);
+  }
+
+  function pasVeldToe(veld) {
+    const ws = gesorteerd(tags[veld] || []);
+    if (!ws.length) return;
+    const tekst = ws.map(w => w.t).join(' ');
+    let waarde = null;
+    if (BEDRAGVELDEN.includes(veld)) {
+      const b = bedragenIn(tekst);
+      waarde = b.length ? b[0] : null;
+    } else if (veld === 'datum') waarde = datumIn(tekst);
+    else waarde = tekst.replace(/^[\s:#\-|]+|[\s:\-|]+$/g, '');
+    if (waarde === null || waarde === '') {
+      status.style.color = 'var(--amber)';
+      status.textContent = `"${tekst}" is geen geldige waarde voor ${veld}.`;
+      return;
+    }
+    if (veld === 'btw_bedrag') {
+      // Btw-bedrag bepaalt (samen met totaal) het bedrag excl.
+      const t = parseFloat(totaal.value);
+      if (!isNaN(t) && !(tags.bedrag_excl_btw && tags.bedrag_excl_btw.size) && !regelsBody.children.length)
+        zet('bedrag_excl_btw', (t - waarde).toFixed(2), 'getagd');
+      return;
+    }
+    if (BEDRAGVELDEN.includes(veld)) waarde = Number(waarde).toFixed(2);
+    zet(veld, waarde, 'getagd');
+    if (veld === 'totaal_incl_btw' && !(tags.bedrag_excl_btw && tags.bedrag_excl_btw.size)) herbereken();
+  }
+
+  function regelUitRij(ws) {
+    // Bedrag = laatste woord met een bedrag; omschrijving = tekstwoorden ervoor
+    let idx = -1;
+    ws.forEach((w, i) => { if (bedragenIn(w.t).length) idx = i; });
+    if (idx < 0) return null;
+    const bedrag = bedragenIn(ws[idx].t)[0];
+    const tekst = ws.map(w => w.t).join(' ');
+    const pm = tekst.match(PCT_RE);
+    const oms = ws.slice(0, idx)
+      .filter(w => !bedragenIn(w.t).length && !/^[\d.,x%€-]+$/i.test(w.t) && !/^(st|stk|stuks?|pcs|uur|eur)$/i.test(w.t))
+      .map(w => w.t).join(' ').replace(/^[\s:\-|]+|[\s:\-|]+$/g, '');
+    return { omschrijving: oms || tekst, bedrag_excl_btw: bedrag,
+             btw_percentage: pm ? +pm[1] : parseInt(btw.value), bedragWoord: ws[idx] };
+  }
+
+  function klikRegel(w) {
+    const rk = `${w.p}:${w.r}`;
+    if (!regelsHandmatig) {
+      // Eerste handmatige regel: automatisch herkende regels vervangen
+      regelsBody.innerHTML = ''; regelTags = {}; regelsHandmatig = true;
+    }
+    if (regelTags[rk]) {
+      delete regelTags[rk];
+      const tr = regelsBody.querySelector(`tr[data-rij="${rk}"]`);
+      if (tr) tr.remove();
+    } else {
+      const reg = regelUitRij(rijen[rk] || []);
+      if (!reg) {
+        status.style.color = 'var(--amber)';
+        status.textContent = 'Op deze regel staat geen bedrag.';
+        return;
+      }
+      regelTags[rk] = reg.bedragWoord.id;
+      const tr = regelRij(reg);
+      tr.dataset.rij = rk;
+      // in volgorde van de factuur houden
+      [...regelsBody.children].filter(x => x.dataset.rij)
+        .sort((a, b) => { const [ap, ar] = a.dataset.rij.split(':').map(Number), [bp, br] = b.dataset.rij.split(':').map(Number); return ap - bp || ar - br; })
+        .forEach(x => regelsBody.appendChild(x));
+    }
+    tekenTags();
+    regelsBijgewerkt();
+  }
+
+  document.getElementById('wis-tags').onclick = () => { tags = {}; regelTags = {}; tekenTags(); };
+  document.getElementById('zoom-btn').onclick = () => document.getElementById('viewer').classList.toggle('zoom');
+
+  // ── Leren: ankers berekenen bij opslaan ───────────────────────────────────
+  function anker(ids) {
+    const ws = gesorteerd(ids);
+    if (!ws.length) return null;
+    const p = ws[0].p, r = ws[0].r;
+    const box = [Math.min(...ws.map(w => w.x)), Math.min(...ws.map(w => w.y)),
+                 Math.max(...ws.map(w => w.x + w.w)), Math.max(...ws.map(w => w.y + w.h))];
+    // Label: tot 3 woorden direct links op dezelfde rij
+    const rij = (rijen[`${p}:${r}`] || []).slice().sort((a, b) => a.x - b.x);
+    const links = rij.filter(w => w.x + w.w <= box[0] + 0.001 && !ids.has(w.id));
+    const label = [];
+    let rand = box[0];
+    for (let i = links.length - 1; i >= 0 && label.length < 3; i--) {
+      if (rand - (links[i].x + links[i].w) > 0.06) break;
+      label.unshift(links[i].t); rand = links[i].x;
+    }
+    // Label erboven: woorden in de rij(en) erboven, in dezelfde kolom
+    let boven = '';
+    for (let rr = r - 1; rr >= Math.max(0, r - 2) && !boven; rr--) {
+      const ov = (rijen[`${p}:${rr}`] || []).filter(w => w.x < box[2] + 0.01 && w.x + w.w > box[0] - 0.01);
+      if (ov.length && ov.length <= 4 && !ov.some(w => bedragenIn(w.t).length || datumIn(w.t)))
+        boven = ov.sort((a, b) => a.x - b.x).map(w => w.t).join(' ');
+    }
+    const lab = label.join(' ');
+    return { label: /[a-z]/i.test(lab) ? lab : '', boven, box: box.map(v => +v.toFixed(4)), pagina: p };
+  }
+
+  form.addEventListener('submit', () => {
+    if (!doc) return;
+    const ankers = {};
+    for (const [veld, ids] of Object.entries(tags)) {
+      if (veld === 'leverancier' || !ids.size) continue;
+      const a = anker(ids);
+      if (a) ankers[veld] = a;
+    }
+    let regelzone = null;
+    const rks = Object.keys(regelTags);
+    if (rks.length) {
+      const eerste = rks.map(rk => rk.split(':').map(Number)).sort((a, b) => a[0] - b[0] || a[1] - b[1])[0];
+      const ws = rijen[`${eerste[0]}:${eerste[1]}`] || [];
+      const bedragX = rks.map(rk => woorden[regelTags[rk]]).filter(w => w && w.x !== undefined).map(w => w.x + w.w / 2);
+      // Eind-label: tekst van de rij direct onder de laatste getagde regel ("Subtotaal", "Som regels")
+      const laatste = rks.map(rk => rk.split(':').map(Number)).sort((a, b) => b[0] - a[0] || b[1] - a[1])[0];
+      const na = (rijen[`${laatste[0]}:${laatste[1] + 1}`] || []).slice().sort((a, b) => a.x - b.x)
+        .filter(w => !bedragenIn(w.t).length && /[a-z]/i.test(w.t)).slice(0, 3).map(w => w.t).join(' ');
+      regelzone = { pagina: eerste[0], y0: Math.min(...ws.map(w => w.y + w.h / 2)), eind_label: na,
+                    bedrag_x: bedragX.length ? bedragX.reduce((a, b) => a + b) / bedragX.length : null };
+    }
+    document.getElementById('leer_data').value = JSON.stringify({ kenmerken: doc.kenmerken || [], ankers, regelzone });
   });
 })();
 </script>

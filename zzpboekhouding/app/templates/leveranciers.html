@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Geleerde leveranciers{% endblock %}
+{% block topbar_title %}GELEERDE LEVERANCIERS{% endblock %}
+{% block topbar_extra %}
+  <a href="{{ url_for('uitgaven') }}" class="btn-ghost">← UITGAVEN</a>
+{% endblock %}
+{% block content %}
+
+<div class="mono" style="font-size:11px;color:var(--muted);margin-bottom:16px;max-width:760px;line-height:1.6">
+  Elke keer dat je een uitgelezen factuur controleert en opslaat, onthoudt de app voor die leverancier
+  hoe hij te herkennen is (btw-nummer, KvK, IBAN, website) en waar de velden op de factuur staan.
+  Een volgende factuur van dezelfde leverancier wordt dan op dezelfde manier uitgelezen.
+</div>
+
+{% if profielen %}
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>LEVERANCIER</th>
+      <th>HERKENNING</th>
+      <th>GELEERDE VELDEN</th>
+      <th style="width:140px">STANDAARD</th>
+      <th style="width:60px">KEER</th>
+      <th style="width:120px">ACTIES</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in profielen %}
+    <tr>
+      <td>
+        {{ p.naam }}
+        {% if p.bijgewerkt %}<div class="mono" style="font-size:10px;color:var(--faint)">{{ p.bijgewerkt[:10]|nl_datum }}</div>{% endif %}
+      </td>
+      <td class="mono" style="font-size:10px;color:var(--muted)">
+        {% for k in p.kenmerken or [] %}<div>{{ k }}</div>{% else %}— alleen op naam{% endfor %}
+      </td>
+      <td class="mono" style="font-size:10px;color:var(--muted)">
+        {% for veld, a in (p.ankers or {}).items() %}
+          <div>{{ veld_namen.get(veld, veld) }}{% if a.label %} ← "{{ a.label }}"{% elif a.boven %} ↓ "{{ a.boven }}"{% else %} (positie){% endif %}</div>
+        {% endfor %}
+        {% if p.regelzone %}<div>Factuurregels (startpositie + bedragkolom)</div>{% endif %}
+        {% if not p.ankers and not p.regelzone %}—{% endif %}
+      </td>
+      <td class="mono" style="font-size:10px;color:var(--muted)">
+        {% if p.categorie %}<div>{{ p.categorie }}</div>{% endif %}
+        {% if p.btw_percentage is not none %}<div>{{ p.btw_percentage|int }}% btw</div>{% endif %}
+        {% if p.zakelijk_percentage is not none and p.zakelijk_percentage != 100 %}<div>{{ p.zakelijk_percentage|int }}% zakelijk</div>{% endif %}
+      </td>
+      <td class="mono" style="font-size:11px">{{ p.aantal or 0 }}×</td>
+      <td>
+        <form method="POST" action="{{ url_for('leverancier_vergeet', lid=p.id) }}" style="display:inline"
+              onsubmit="return confirm('Geleerde posities van {{ p.naam }} wissen? Naam en herkenning blijven bewaard.')">
+          <button type="submit" class="btn-icon" title="Geleerde posities wissen">↺</button>
+        </form>
+        <form method="POST" action="{{ url_for('leverancier_verwijderen', lid=p.id) }}" style="display:inline"
+              onsubmit="return confirm('Profiel van {{ p.naam }} volledig verwijderen?')">
+          <button type="submit" class="btn-icon d" title="Verwijderen">✕</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty">
+  <div class="empty-icon">⌕</div>
+  <p>Nog niets geleerd. Upload een factuur bij een nieuwe uitgave, laat hem uitlezen, corrigeer wat niet klopt en sla op.</p>
+  <a href="{{ url_for('uitgave_nieuw') }}" class="btn">⇪ FACTUUR UPLOADEN</a>
+</div>
+{% endif %}
+
+{% endblock %}
