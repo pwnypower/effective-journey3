@@ -206,7 +206,7 @@
   const BEDRAGVELDEN = ['totaal_incl_btw', 'bedrag_excl_btw', 'btw_bedrag'];
 
   // ── Bedragen & datums (zelfde regels als ocr.py) ──────────────────────────
-  const BEDRAG_RE = /(\d{1,3}(?:[.\s]\d{3})+,\d{2}|\d{1,3}(?:,\d{3})+\.\d{2}|\d+[.,]\d{2}|\d+,-)(?!\d)/g;
+  const BEDRAG_RE = /(?<![\d.,])(\d{1,3}(?:[.\s]\d{3})+,\d{2}|\d{1,3}(?:,\d{3})+\.\d{2}|\d+[.,]\d{2}|\d+,-)(?!\d|[.,/-]\d)/g;
   const PCT_RE = /(?:^|[^\d])(21|9|6|0)(?:[.,]0+)?\s*%/;
   function parseBedrag(s) {
     s = s.replace(/[\s\u00a0]/g, '');
@@ -227,7 +227,7 @@
     let m, j, mnd, d;
     if ((m = t.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/))) [j, mnd, d] = [+m[1], +m[2], +m[3]];
     else if ((m = t.match(/\b(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})\b/))) [d, mnd, j] = [+m[1], +m[2], +m[3]];
-    else if ((m = t.match(/\b(\d{1,2})\s+([a-zA-Z]{3,9})\.?\s+(\d{4})\b/)) && MAANDEN[m[2].toLowerCase()])
+    else if ((m = t.match(/\b(\d{1,2})[\s\-/.]+([a-zA-Z]{3,9})\.?[\s\-/.']+(\d{4}|\d{2})\b/)) && MAANDEN[m[2].toLowerCase()])
       [d, mnd, j] = [+m[1], MAANDEN[m[2].toLowerCase()], +m[3]];
     else return null;
     if (j < 100) j += 2000;

@@ -200,7 +200,7 @@ _MAANDEN = {
 _BEDRAG_RE = re.compile(
     r"(?<![\d.,])-?(?:€|eur|euro)?\s*"
     r"(\d{1,3}(?:[.\s]\d{3})+,\d{2}|\d{1,3}(?:,\d{3})+\.\d{2}|\d+[.,]\d{2}|\d+,-)"
-    r"(?![\d])",
+    r"(?![\d]|[.,/-]\d)",
     re.IGNORECASE,
 )
 _PCT_RE = re.compile(r"(?<!\d)(21|9|6|0)(?:[.,]0+)?\s*%")
@@ -240,7 +240,7 @@ def datum_in(regel: str) -> str | None:
         if m:
             d, mnd, j = int(m.group(1)), int(m.group(2)), int(m.group(3))
         else:
-            m = re.search(r"\b(\d{1,2})\s+([a-zA-Z]{3,9})\.?\s+(\d{4})\b", regel)
+            m = re.search(r"\b(\d{1,2})[\s\-/.]+([a-zA-Z]{3,9})\.?[\s\-/.']+(\d{4}|\d{2})\b", regel)
             if not m or m.group(2).lower() not in _MAANDEN:
                 return None
             d, mnd, j = int(m.group(1)), _MAANDEN[m.group(2).lower()], int(m.group(3))
@@ -271,8 +271,28 @@ _KW_GEEN_REGEL = re.compile(
 _RE_ADRES = re.compile(r"\b\d{4}\s?[A-Z]{2}\b|(?:straat|weg|laan|plein|kade|gracht|"
                        r"singel|dijk|park|hof|steeg|street|road|avenue)\b\.?\s*\d|"
                        r"\b(?:postbus|p\.?o\.?\s*box)\b", re.I)
-_RE_RECHTSVORM = re.compile(r"\b(?:b\.?v\.?|n\.?v\.?|v\.?o\.?f\.?|c\.?v\.?|ltd|gmbh|inc|"
-                            r"llc|s\.?a\.?|holding|groep|group)\b", re.I)
+_RE_RECHTSVORM = re.compile(r"(?:\bb\.?v\.?(?=\s|$)|\bn\.v\.|\bv\.o\.f\.?|\bvof\b|\bc\.v\.|"
+                            r"\bltd\b|\bgmbh\b|\binc\b|\bllc\b|\bholding\b|\bgroep\b|\bgroup\b)", re.I)
+
+
+_RE_LABELWOORD = re.compile(
+    r"^(?:kvk|k\.v\.k\.?|coc|btw(?:-?(?:nr|nummer|id))?|vat|iban|bic|swift|tel(?:efoon)?|"
+    r"phone|fax|e-?mail|web(?:site)?|www\..*|klant(?:nr|nummer)?|debiteur(?:nr|nummer)?|"
+    r"referentie|ref|order(?:nr|nummer)?|vervaldatum|due|pagina|page)[:.]?$", re.I)
+_RE_IDENTIFICATIE = re.compile(
+    r"^(?:NL\d{9}B\d{2}|[A-Z]{2}\d{2}[A-Z]{4}\d{6,}|\d{8}|(?:\+|00|0)\d[\d\s-]{8,})$", re.I)
+
+
+def is_labelwoord(t: str) -> bool:
+    """Woord dat een nieuw veld aankondigt ("KvK:", "IBAN", "Tel.", "Vervaldatum:")."""
+    t = t.strip()
+    return bool(_RE_LABELWOORD.match(t)) or (t.endswith(":") and len(t) > 2
+                                             and bool(re.search(r"[A-Za-z]", t)))
+
+
+def is_identificatie(t: str) -> bool:
+    """KvK-nummer, btw-nummer, IBAN of telefoonnummer."""
+    return bool(_RE_IDENTIFICATIE.match(t.strip(" :;,.")))
 
 
 def _norm(s: str) -> str:
@@ -291,6 +311,8 @@ def herken_leverancier(regels: list[str], eigen_namen: list[str] | None = None,
     kandidaten = []
     eigen_blok = -1  # rijen direct na je eigen naam zijn jouw adresblok
     for i, r in enumerate(regels):
+        if bedragen_in(r):
+            continue  # rij met een bedrag is een factuurregel of totaal, geen naam
         # Rijen opsplitsen in kolommen en voettekst-segmenten ("Naam B.V. | KvK ...")
         for deel in re.split(r"\s{3,}|\s[|•·]\s|\s-\s", r):
             deel = deel.strip(" |•·-")
@@ -397,6 +419,15 @@ def herken_factuur(tekst: str, eigen_namen: list[str] | None = None,
     return res
 
 
+def is_totaalregel(r: str) -> bool:
+    """(Sub)totaal- of btw-regel mét bedrag: daar houden de factuurregels op.
+    Kopjes zonder bedrag ('Totaal' als kolomkop, 'BTW: NL…') tellen niet."""
+    if not bedragen_in(r):
+        return False
+    return bool(_KW_EXCL.search(r) or _KW_TOTAAL.search(r)
+                or (_KW_BTW.search(r) and not _KW_GEEN_BTW_BEDRAG.search(r)))
+
+
 def regel_uit_rij(tekst: str, standaard_pct: int | None) -> dict | None:
     """Maakt van één rij tekst een factuurregel {omschrijving, bedrag, btw_percentage}."""
     bedragen = bedragen_in(tekst)
@@ -427,8 +458,7 @@ def herken_regels(tekst: str, velden: dict) -> list[dict]:
     for r in (r.strip() for r in tekst.splitlines()):
         if not r:
             continue
-        if _KW_EXCL.search(r) or _KW_TOTAAL.search(r) or \
-                (_KW_BTW.search(r) and not _KW_GEEN_BTW_BEDRAG.search(r)):
+        if is_totaalregel(r):
             break
         if _KW_GEEN_REGEL.search(r) or datum_in(r):
             continue
@@ -438,7 +468,7 @@ def herken_regels(tekst: str, velden: dict) -> list[dict]:
     excl, totaal = velden.get("bedrag_excl_btw"), velden.get("totaal_incl_btw")
     # Langste reeks regels (vanaf boven) waarvan de som klopt; zo vallen onbekende
     # subtotaal-regels ("Som regels  29,45") er vanzelf af.
-    for n in range(len(kandidaten), 1, -1):
+    for n in range(len(kandidaten), 0, -1):
         deel = kandidaten[:n]
         som = round(sum(k["bedrag"] for k in deel), 2)
         if excl is not None and abs(som - excl) <= 0.05:
