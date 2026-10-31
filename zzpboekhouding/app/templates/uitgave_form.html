@@ -99,8 +99,10 @@
         <input type="text" name="factuurnummer" value="{{ uitgave.factuurnummer if uitgave and uitgave.factuurnummer else '' }}">
       </div>
       <div class="field" style="grid-column:span 2">
-        <label>OMSCHRIJVING *<span class="bron" data-bron="omschrijving"></span></label>
-        <input type="text" name="omschrijving" value="{{ uitgave.omschrijving if uitgave else '' }}" required>
+        <label>OMSCHRIJVING<span class="bron" data-bron="omschrijving"></span></label>
+        <input type="text" name="omschrijving" value="{{ uitgave.omschrijving if uitgave else '' }}"
+               placeholder="Leeg laten = automatisch uit de factuurregels">
+        <input type="hidden" name="omschrijving_auto" id="omschrijving_auto">
       </div>
       <div class="field">
         <label>TOTAAL INCL. BTW (rekent excl. uit)<span class="bron" data-bron="totaal_incl_btw"></span></label>
@@ -161,6 +163,29 @@
   const excl = form.elements['bedrag_excl_btw'];
   const btw = form.elements['btw_percentage'];
   const regelsBody = document.getElementById('regels-body');
+  const omsVeld = form.elements['omschrijving'];
+  // Omschrijving volgt automatisch de factuurregels zolang je hem niet zelf aanpast
+  let omsAuto = !omsVeld.value;
+  function autoOmschrijving() {
+    const namen = [...regelsBody.children].map(tr => tr.querySelector('[name=regel_omschrijving]').value.trim()).filter(Boolean);
+    if (!namen.length)
+      return ['Factuur', form.elements['leverancier'].value.trim(), form.elements['factuurnummer'].value.trim()].filter(Boolean).join(' ');
+    const t = namen.length <= 2 ? namen.join(', ') : `${namen[0]}, ${namen[1]} + ${namen.length - 2} meer`;
+    return t.slice(0, 120);
+  }
+  function werkOmsBij() {
+    if (!omsAuto) return;
+    const t = autoOmschrijving();
+    omsVeld.value = t === 'Factuur' ? '' : t;
+    const b = document.querySelector('[data-bron="omschrijving"]');
+    if (b) b.textContent = omsVeld.value ? '◇ UIT REGELS' : '';
+  }
+  omsVeld.addEventListener('input', () => {
+    omsAuto = !omsVeld.value.trim();
+    const b = document.querySelector('[data-bron="omschrijving"]');
+    if (b) b.textContent = '';
+  });
+  ['leverancier', 'factuurnummer'].forEach(n => form.elements[n].addEventListener('input', werkOmsBij));
   const ocrMogelijk = {{ 'true' if ocr_beschikbaar or pdf_beschikbaar else 'false' }};
   const bestaandeBijlage = {{ (url_for('uitgave_bijlage', uid=uitgave.id) if uitgave and uitgave.bijlage_pad else none)|tojson }};
   const bestaandeNaam = {{ ((uitgave.bijlage_naam or '') if uitgave and uitgave.bijlage_pad else '')|tojson }};
@@ -245,6 +270,7 @@
     const info = document.getElementById('regels-info');
     document.getElementById('regels-incl').style.display = rijen.length ? '' : 'none';
     excl.readOnly = btw.disabled = rijen.length > 0;
+    werkOmsBij();
     if (!rijen.length) { info.textContent = ''; return; }
     let e = 0, b = 0;
     rijen.forEach(tr => {
@@ -273,8 +299,12 @@
     regelsBijgewerkt();
   };
   // btw% wordt bij regels berekend, maar moet wel mee in het formulier
-  form.addEventListener('submit', () => { btw.disabled = false; });
+  form.addEventListener('submit', () => {
+    btw.disabled = false;
+    document.getElementById('omschrijving_auto').value = omsAuto ? '1' : '';
+  });
   {{ regels|tojson }}.forEach(r => regelRij(r));
+  if (omsVeld.value && regelsBody.children.length && omsVeld.value === autoOmschrijving()) omsAuto = true;
   regelsBijgewerkt();
 
   // ── Uitlezen ──────────────────────────────────────────────────────────────
@@ -294,7 +324,7 @@
     el.value = waarde;
     el.style.outline = '1px solid var(--amber)';
     const b = document.querySelector(`[data-bron="${naam}"]`);
-    if (b) b.textContent = bron === 'geleerd' ? '● GELEERD' : bron === 'standaard' ? '○ VORIGE KEER' : bron === 'getagd' ? '◆ GETAGD' : '';
+    if (b) b.textContent = bron === 'geleerd' ? '● GELEERD' : bron === 'standaard' ? '○ VORIGE KEER' : bron === 'getagd' ? '◆ GETAGD' : bron === 'regels' ? '◇ UIT REGELS' : '';
     return true;
   }
 
@@ -328,15 +358,14 @@
   function vulIn(d) {
     const v = d.velden || {}, b = d.bronnen || {};
     let n = 0;
+    // Geen eigen omschrijving op de factuur? Dan volgt hij de regels (of 'Factuur <leverancier> <nr>')
+    omsAuto = !v.omschrijving || b.omschrijving === 'regels';
     for (const k of ['datum', 'leverancier', 'factuurnummer', 'omschrijving', 'totaal_incl_btw', 'categorie', 'zakelijk_percentage'])
       n += zet(k, v[k], b[k]);
     if (v.btw_percentage !== undefined) n += zet('btw_percentage', String(v.btw_percentage), b.btw_percentage);
     if (v.bedrag_excl_btw !== undefined) n += zet('bedrag_excl_btw', Number(v.bedrag_excl_btw).toFixed(2), b.bedrag_excl_btw);
     else if (v.totaal_incl_btw !== undefined) { herbereken(); n++; }
-    if (!form.elements['omschrijving'].value) {
-      const oms = ['Factuur', v.leverancier, v.factuurnummer].filter(Boolean).join(' ');
-      if (oms !== 'Factuur') n += zet('omschrijving', oms, 'herkend');
-    }
+    werkOmsBij();
     if (d.regels && d.regels.length) {
       regelsBody.innerHTML = '';
       d.regels.forEach(r => regelRij(r));
@@ -474,6 +503,7 @@
     }
     if (BEDRAGVELDEN.includes(veld)) waarde = Number(waarde).toFixed(2);
     zet(veld, waarde, 'getagd');
+    if (veld === 'omschrijving') omsAuto = false;
     if (veld === 'totaal_incl_btw' && !(tags.bedrag_excl_btw && tags.bedrag_excl_btw.size)) herbereken();
   }
 

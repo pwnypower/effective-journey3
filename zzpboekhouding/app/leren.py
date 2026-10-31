@@ -218,6 +218,20 @@ def regels_uit_zone(doc: dict, zone: dict, standaard_pct) -> tuple[list[dict], l
     return regels, ids
 
 
+def omschrijving_uit_regels(regels: list[dict], leverancier: str = "",
+                            nummer: str = "") -> str:
+    """Omschrijving voor facturen zonder algemene omschrijving: samengesteld uit de
+    factuurregels, of 'Factuur <leverancier> <nummer>' als er geen regels zijn."""
+    namen = [r.get("omschrijving", "").strip() for r in regels if r.get("omschrijving", "").strip()]
+    if not namen:
+        return " ".join(x for x in ("Factuur", leverancier, nummer) if x).strip()
+    if len(namen) <= 2:
+        tekst = ", ".join(namen)
+    else:
+        tekst = f"{namen[0]}, {namen[1]} + {len(namen) - 2} meer"
+    return tekst[:120]
+
+
 def vul_afgeleid(v: dict) -> dict:
     """Vult ontbrekende bedragen aan uit de andere (totaal/excl/btw/btw%)."""
     t, e, b, p = (v.get(k) for k in ("totaal_incl_btw", "bedrag_excl_btw", "btw_bedrag",
@@ -303,7 +317,8 @@ def analyseer(doc: dict, profielen: list[dict], eigen_namen: list[str],
             if ruw:
                 regels = _regels_naar_excl(_klopt_met_totalen(ruw, velden), velden)
                 gevonden["regels"] = ids
-        if "omschrijving" not in velden and profiel.get("omschrijving"):
+        if "omschrijving" not in velden and profiel.get("omschrijving") \
+                and not profiel.get("omschrijving_uit_regels"):
             velden["omschrijving"] = profiel["omschrijving"].replace(
                 "{factuurnummer}", str(velden.get("factuurnummer", ""))).strip()
             bronnen["omschrijving"] = "standaard"
@@ -311,8 +326,8 @@ def analyseer(doc: dict, profielen: list[dict], eigen_namen: list[str],
     if not regels:
         regels = ocr.herken_regels(tekst, velden)
     if regels and "omschrijving" not in velden:
-        velden["omschrijving"] = regels[0]["omschrijving"] + (" e.a." if len(regels) > 1 else "")
-        bronnen["omschrijving"] = "herkend"
+        velden["omschrijving"] = omschrijving_uit_regels(regels)
+        bronnen["omschrijving"] = "regels"
 
     return {
         "velden": velden,
@@ -358,5 +373,11 @@ def werk_profiel_bij(bestaand: dict | None, naam: str, standaard: dict,
     for k in ("categorie", "btw_percentage", "zakelijk_percentage", "omschrijving"):
         if standaard.get(k) not in (None, ""):
             p[k] = standaard[k]
+    # Omschrijving automatisch uit de regels: geen vaste tekst onthouden, alleen de keuze
+    if standaard.get("omschrijving_uit_regels"):
+        p["omschrijving_uit_regels"] = True
+        p.pop("omschrijving", None)
+    elif standaard.get("omschrijving"):
+        p["omschrijving_uit_regels"] = False
     p["aantal"] = int(p.get("aantal") or 0) + 1
     return p

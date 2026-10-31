@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.4.1
+- Omschrijving is niet meer verplicht: zonder eigen omschrijving wordt hij automatisch samengesteld uit de factuurregels (bv. "Webhosting, Domeinnaam + 1 meer") of "Factuur <leverancier> <nummer>"
+- De omschrijving loopt live mee als je regels tagt, toevoegt of verwijdert, totdat je hem zelf aanpast (◇ UIT REGELS)
+- Per leverancier wordt onthouden of de omschrijving uit de regels komt, zodat een volgende factuur niet de tekst van de vorige maand krijgt
+
 ## 2.4.0
 - Taggen op de factuur: na het uitlezen staat de factuur in beeld; kies een veld (leverancier, datum, factuurnummer, omschrijving, totaal, excl. btw, btw-bedrag of regel) en tik de juiste woorden aan
 - Leren per leverancier: bij opslaan worden herkenning (btw-nummer, KvK, IBAN, website), geleerde posities/labels per veld, de plek van de factuurregels en standaardwaarden (categorie, btw%, zakelijk%, omschrijving) onthouden en bij de volgende factuur toegepast

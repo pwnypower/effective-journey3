@@ -1476,7 +1476,10 @@ def _uitgave_velden(regels):
         excl = float(f["bedrag_excl_btw"])
         btw_pct = float(f.get("btw_percentage", 21))
         btw_bedrag = None
-    return (f["datum"], f["omschrijving"], f.get("categorie"), excl, btw_pct,
+    oms = (f.get("omschrijving") or "").strip() or _leren.omschrijving_uit_regels(
+        [{"omschrijving": r[0]} for r in regels], (f.get("leverancier") or "").strip(),
+        (f.get("factuurnummer") or "").strip()) or "Uitgave"
+    return (f["datum"], oms, f.get("categorie"), excl, btw_pct,
             float(f.get("zakelijk_percentage", 100)),
             f.get("leverancier"), f.get("notities"),
             f.get("factuurnummer", "").strip() or None, totaal, btw_bedrag)
@@ -1528,13 +1531,15 @@ def _leer_van_formulier(db):
     kenmerken = [k for k in leer.get("kenmerken") or [] if isinstance(k, str)]
     nummer = (f.get("factuurnummer") or "").strip()
     oms = (f.get("omschrijving") or "").strip()
+    oms_auto = f.get("omschrijving_auto") == "1" or not oms
     if nummer and nummer in oms:
         oms = oms.replace(nummer, "{factuurnummer}")
     standaard = {
         "categorie": f.get("categorie"),
         "btw_percentage": _float(f.get("btw_percentage")),
         "zakelijk_percentage": _float(f.get("zakelijk_percentage")),
-        "omschrijving": oms,
+        "omschrijving": "" if oms_auto else oms,
+        "omschrijving_uit_regels": oms_auto,
     }
     rij = db.execute("SELECT * FROM leveranciers WHERE naam=? COLLATE NOCASE", (naam,)).fetchone()
     bestaand = _json.loads(rij["profiel"]) if rij else None
