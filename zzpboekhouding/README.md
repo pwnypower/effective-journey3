@@ -87,6 +87,19 @@ Zonder een publieke `app_base_url` werkt de app verder gewoon **lokaal in je eig
 netwerk** op `http://<ha-ip>:5000` — alleen de Mollie-betaallink/webhook-knoppen blijven
 dan uitgeschakeld.
 
+## Facturen uploaden (uitgaven)
+
+Bij **Uitgaven → Factuur uploaden** (of bij het bewerken van een uitgave) kun je een
+inkoopfactuur of bon toevoegen als PDF of foto. Het bestand wordt altijd als bijlage bij
+de uitgave bewaard in `/data/bijlagen` (dus mee in HA-backups). Klik op
+**Uitlezen met OCR** om datum, leverancier, factuurnummer, totaalbedrag en btw automatisch
+in te laten vullen. PDF's met een tekstlaag worden direct gelezen; scans en foto's gaan via
+tesseract OCR (Nederlands + Engels). Controleer de voorgevulde (gemarkeerde) velden altijd
+voordat je opslaat.
+
+Optionele environment variables: `BIJLAGEN_DIR` (opslagmap), `OCR_LANG` (standaard
+`nld+eng`) en `MAX_UPLOAD_MB` (standaard 25).
+
 ## Data en backups
 
 De SQLite-database staat in de add-on `/data` map, die HA automatisch persistent houdt

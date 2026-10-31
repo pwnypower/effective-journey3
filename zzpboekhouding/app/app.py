@@ -12,7 +12,10 @@ from email import encoders as _encoders
 from datetime import datetime, date, timedelta
 from flask import (Flask, render_template, request, redirect, url_for,
                    flash, g, send_file, make_response, jsonify)
+from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
+
+import ocr as _ocr
 
 load_dotenv()
 
@@ -83,6 +86,11 @@ def factuur_voor_mail(factuur):
 
 DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(__file__), "boekhouding.db"))
 PORT = int(os.environ.get("PORT", "5000"))
+BIJLAGEN_DIR = os.environ.get(
+    "BIJLAGEN_DIR",
+    os.path.join(os.path.dirname(os.path.abspath(DB_PATH)), "bijlagen")
+)
+app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("MAX_UPLOAD_MB", "25")) * 1024 * 1024
 
 # Env-var defaults (used for initial DB seed only)
 _ENV_NAAM = os.environ.get("BEDRIJFSNAAM", "Mijn ZZP Bedrijf")
@@ -261,6 +269,12 @@ def init_db():
     for col, defn in [("periode_van", "TEXT"), ("periode_tot", "TEXT")]:
         try:
             db.execute(f"ALTER TABLE periodieke_regels ADD COLUMN {col} {defn}")
+        except Exception:
+            pass
+    for col, defn in [("bijlage_pad", "TEXT"), ("bijlage_naam", "TEXT"),
+                      ("factuurnummer", "TEXT"), ("totaal_incl_btw", "REAL")]:
+        try:
+            db.execute(f"ALTER TABLE uitgaven ADD COLUMN {col} {defn}")
         except Exception:
             pass
     for col, defn in [("mollie_poll_url", "TEXT NOT NULL DEFAULT ''"),
@@ -1409,21 +1423,68 @@ def uitgaven():
     return render_template("uitgaven.html", uitgaven=get_db().execute("SELECT * FROM uitgaven ORDER BY datum DESC").fetchall())
 
 
+def _uitgave_velden():
+    f = request.form
+    totaal = f.get("totaal_incl_btw", "").strip()
+    return (f["datum"], f["omschrijving"], f.get("categorie"),
+            float(f["bedrag_excl_btw"]), float(f.get("btw_percentage", 21)),
+            float(f.get("zakelijk_percentage", 100)),
+            f.get("leverancier"), f.get("notities"),
+            f.get("factuurnummer", "").strip() or None,
+            float(totaal) if totaal else None)
+
+
+def _bijlage_bestandspad(naam):
+    return os.path.join(BIJLAGEN_DIR, naam)
+
+
+def _verwijder_bijlagebestand(naam):
+    if naam:
+        pad = _bijlage_bestandspad(os.path.basename(naam))
+        if os.path.exists(pad):
+            os.remove(pad)
+
+
+def _bewaar_bijlage(db, uid):
+    """Slaat een geüpload factuurbestand op bij uitgave `uid` (vervangt een eerdere)."""
+    f = request.files.get("bijlage")
+    if not f or not f.filename:
+        return
+    origineel = secure_filename(f.filename) or "factuur"
+    ext = os.path.splitext(origineel)[1].lower()
+    if ext not in _ocr.TOEGESTANE_EXT:
+        flash(f"Bijlage niet opgeslagen: bestandstype {ext or '?'} niet toegestaan "
+              "(PDF, JPG, PNG, TIFF, WEBP).", "warning")
+        return
+    os.makedirs(BIJLAGEN_DIR, exist_ok=True)
+    oud = db.execute("SELECT bijlage_pad FROM uitgaven WHERE id=?", (uid,)).fetchone()
+    naam = f"uitgave_{uid}_{datetime.now():%Y%m%d%H%M%S}{ext}"
+    f.save(_bijlage_bestandspad(naam))
+    if oud and oud["bijlage_pad"]:
+        _verwijder_bijlagebestand(oud["bijlage_pad"])
+    db.execute("UPDATE uitgaven SET bijlage_pad=?, bijlage_naam=? WHERE id=?",
+               (naam, origineel, uid))
+
+
+def _uitgave_form(uitgave=None):
+    return render_template("uitgave_form.html", vandaag=date.today().isoformat(),
+                           uitgave=uitgave, ocr_beschikbaar=_ocr.ocr_beschikbaar(),
+                           pdf_beschikbaar=_ocr.pdf_beschikbaar())
+
+
 @app.route("/uitgaven/nieuw", methods=["GET", "POST"])
 def uitgave_nieuw():
     if request.method == "POST":
         db = get_db()
-        db.execute(
-            "INSERT INTO uitgaven (datum,omschrijving,categorie,bedrag_excl_btw,btw_percentage,zakelijk_percentage,leverancier,notities) VALUES (?,?,?,?,?,?,?,?)",
-            (request.form["datum"], request.form["omschrijving"], request.form.get("categorie"),
-             float(request.form["bedrag_excl_btw"]), float(request.form.get("btw_percentage", 21)),
-             float(request.form.get("zakelijk_percentage", 100)),
-             request.form.get("leverancier"), request.form.get("notities")),
+        cur = db.execute(
+            "INSERT INTO uitgaven (datum,omschrijving,categorie,bedrag_excl_btw,btw_percentage,zakelijk_percentage,leverancier,notities,factuurnummer,totaal_incl_btw) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            _uitgave_velden(),
         )
+        _bewaar_bijlage(db, cur.lastrowid)
         db.commit()
         flash("Uitgave toegevoegd.", "success")
         return redirect(url_for("uitgaven"))
-    return render_template("uitgave_form.html", vandaag=date.today().isoformat(), uitgave=None)
+    return _uitgave_form()
 
 
 @app.route("/uitgaven/<int:uid>/bewerken", methods=["GET", "POST"])
@@ -1431,25 +1492,83 @@ def uitgave_bewerken(uid):
     db = get_db()
     if request.method == "POST":
         db.execute(
-            "UPDATE uitgaven SET datum=?,omschrijving=?,categorie=?,bedrag_excl_btw=?,btw_percentage=?,zakelijk_percentage=?,leverancier=?,notities=? WHERE id=?",
-            (request.form["datum"], request.form["omschrijving"], request.form.get("categorie"),
-             float(request.form["bedrag_excl_btw"]), float(request.form.get("btw_percentage", 21)),
-             float(request.form.get("zakelijk_percentage", 100)),
-             request.form.get("leverancier"), request.form.get("notities"), uid),
+            "UPDATE uitgaven SET datum=?,omschrijving=?,categorie=?,bedrag_excl_btw=?,btw_percentage=?,zakelijk_percentage=?,leverancier=?,notities=?,factuurnummer=?,totaal_incl_btw=? WHERE id=?",
+            _uitgave_velden() + (uid,),
         )
+        if request.form.get("bijlage_verwijderen") and not request.files.get("bijlage"):
+            oud = db.execute("SELECT bijlage_pad FROM uitgaven WHERE id=?", (uid,)).fetchone()
+            if oud:
+                _verwijder_bijlagebestand(oud["bijlage_pad"])
+            db.execute("UPDATE uitgaven SET bijlage_pad=NULL, bijlage_naam=NULL WHERE id=?", (uid,))
+        _bewaar_bijlage(db, uid)
         db.commit()
         flash("Uitgave bijgewerkt.", "success")
         return redirect(url_for("uitgaven"))
-    return render_template("uitgave_form.html", vandaag=date.today().isoformat(),
-                           uitgave=db.execute("SELECT * FROM uitgaven WHERE id=?", (uid,)).fetchone())
+    uitgave = db.execute("SELECT * FROM uitgaven WHERE id=?", (uid,)).fetchone()
+    if not uitgave:
+        flash("Uitgave niet gevonden.", "danger")
+        return redirect(url_for("uitgaven"))
+    return _uitgave_form(uitgave)
 
 
 @app.route("/uitgaven/<int:uid>/verwijderen", methods=["POST"])
 def uitgave_verwijderen(uid):
-    get_db().execute("DELETE FROM uitgaven WHERE id=?", (uid,))
-    get_db().commit()
+    db = get_db()
+    oud = db.execute("SELECT bijlage_pad FROM uitgaven WHERE id=?", (uid,)).fetchone()
+    if oud:
+        _verwijder_bijlagebestand(oud["bijlage_pad"])
+    db.execute("DELETE FROM uitgaven WHERE id=?", (uid,))
+    db.commit()
     flash("Uitgave verwijderd.", "success")
     return redirect(url_for("uitgaven"))
+
+
+@app.route("/uitgaven/<int:uid>/bijlage")
+def uitgave_bijlage(uid):
+    u = get_db().execute("SELECT bijlage_pad, bijlage_naam FROM uitgaven WHERE id=?", (uid,)).fetchone()
+    if not u or not u["bijlage_pad"]:
+        flash("Geen bijlage gevonden.", "danger")
+        return redirect(url_for("uitgaven"))
+    pad = _bijlage_bestandspad(os.path.basename(u["bijlage_pad"]))
+    if not os.path.exists(pad):
+        flash("Bijlagebestand ontbreekt op schijf.", "danger")
+        return redirect(url_for("uitgaven"))
+    return send_file(pad, download_name=u["bijlage_naam"] or os.path.basename(pad),
+                     as_attachment=request.args.get("download") == "1")
+
+
+@app.route("/uitgaven/ocr", methods=["POST"])
+def uitgave_ocr():
+    """Leest een geüploade factuur uit (OCR / PDF-tekst) en geeft voorgestelde velden terug."""
+    f = request.files.get("bijlage")
+    if not f or not f.filename:
+        return jsonify(ok=False, fout="Geen bestand ontvangen."), 400
+    ext = os.path.splitext(secure_filename(f.filename) or "")[1].lower()
+    if ext not in _ocr.TOEGESTANE_EXT:
+        return jsonify(ok=False, fout="Bestandstype niet ondersteund (PDF, JPG, PNG, TIFF, WEBP)."), 400
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        pad = os.path.join(tmp, "upload" + ext)
+        f.save(pad)
+        try:
+            res = _ocr.verwerk_bestand(pad)
+        except Exception as e:  # noqa: BLE001
+            return jsonify(ok=False, fout=f"Uitlezen mislukt: {e}"), 500
+    if not res["methode"]:
+        return jsonify(ok=False, fout="OCR niet beschikbaar op deze installatie "
+                                      "(tesseract/poppler ontbreekt)."), 501
+    if not res["tekst"].strip():
+        return jsonify(ok=False, fout="Geen tekst gevonden in het bestand."), 422
+    return jsonify(ok=True, **res)
+
+
+@app.errorhandler(413)
+def te_groot(_e):
+    mb = app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024)
+    if request.path.endswith("/ocr"):
+        return jsonify(ok=False, fout=f"Bestand te groot (max {mb} MB)."), 413
+    flash(f"Bestand te groot (max {mb} MB).", "danger")
+    return redirect(request.referrer or url_for("uitgaven"))
 
 
 # ─── BTW ──────────────────────────────────────────────────────────────────────

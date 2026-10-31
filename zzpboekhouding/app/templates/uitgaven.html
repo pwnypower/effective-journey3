@@ -2,6 +2,7 @@
 {% block title %}Uitgaven{% endblock %}
 {% block topbar_title %}UITGAVEN{% endblock %}
 {% block topbar_extra %}
+  <a href="{{ url_for('uitgave_nieuw') }}" class="btn-sec">⇪ FACTUUR UPLOADEN</a>
   <a href="{{ url_for('uitgave_nieuw') }}" class="btn">⊕ NIEUWE UITGAVE</a>
 {% endblock %}
 {% block content %}
@@ -25,6 +26,8 @@
       <td class="mono" style="font-size:11px;color:var(--muted)">{{ u.datum }}</td>
       <td>
         {{ u.omschrijving }}
+        {% if u.bijlage_pad %}<a href="{{ url_for('uitgave_bijlage', uid=u.id) }}" target="_blank" title="{{ u.bijlage_naam }}" style="text-decoration:none">📎</a>{% endif %}
+        {% if u.factuurnummer %}<span class="mono" style="font-size:10px;color:var(--faint)"> #{{ u.factuurnummer }}</span>{% endif %}
         {% if u.leverancier %}<div class="mono" style="font-size:10px;color:var(--faint)">{{ u.leverancier }}</div>{% endif %}
       </td>
       <td class="mono" style="font-size:10px;color:var(--muted)">{{ u.categorie or '—' }}</td>

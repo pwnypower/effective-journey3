@@ -7,7 +7,36 @@
 {% block content %}
 
 <div style="max-width:680px">
-<form method="POST">
+<form method="POST" enctype="multipart/form-data" id="uitgave-form">
+  <div class="panel">
+    <div class="panel-title">FACTUUR / BON UPLOADEN</div>
+    {% if uitgave and uitgave.bijlage_pad %}
+    <div class="mono" style="font-size:11px;margin-bottom:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <span style="color:var(--muted)">HUIDIGE BIJLAGE:</span>
+      <a href="{{ url_for('uitgave_bijlage', uid=uitgave.id) }}" target="_blank" style="color:var(--amber)">📎 {{ uitgave.bijlage_naam }}</a>
+      <a href="{{ url_for('uitgave_bijlage', uid=uitgave.id, download=1) }}" style="color:var(--muted)">DOWNLOAD</a>
+      <label style="display:inline-flex;gap:6px;align-items:center;color:var(--muted)">
+        <input type="checkbox" name="bijlage_verwijderen" value="1"> VERWIJDEREN
+      </label>
+    </div>
+    {% endif %}
+    <div class="field">
+      <label>{{ 'VERVANGEN DOOR NIEUW BESTAND' if uitgave and uitgave.bijlage_pad else 'BESTAND (PDF, JPG, PNG, TIFF, WEBP)' }}</label>
+      <input type="file" name="bijlage" id="bijlage" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.webp,.bmp,.gif,application/pdf,image/*">
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
+      <button type="button" class="btn-sec" id="ocr-btn" disabled
+              {% if not ocr_beschikbaar and not pdf_beschikbaar %}title="OCR niet beschikbaar op deze installatie"{% endif %}>⌕ UITLEZEN MET OCR</button>
+      <span class="mono" id="ocr-status" style="font-size:10px;color:var(--muted)">
+        Het bestand wordt altijd als bijlage bij de uitgave bewaard. Met OCR worden de velden hieronder automatisch voorgevuld — controleer ze altijd.
+      </span>
+    </div>
+    <details id="ocr-tekst-wrap" style="display:none;margin-top:12px">
+      <summary class="mono" style="font-size:10px;color:var(--muted);cursor:pointer">HERKENDE TEKST TONEN</summary>
+      <pre id="ocr-tekst" class="mono" style="font-size:10px;white-space:pre-wrap;max-height:240px;overflow:auto;color:var(--muted);margin-top:8px"></pre>
+    </details>
+  </div>
+
   <div class="panel">
     <div class="panel-title">UITGAVEGEGEVENS</div>
     <div class="fg fg2">
@@ -26,6 +55,14 @@
       <div class="field" style="grid-column:span 2">
         <label>OMSCHRIJVING *</label>
         <input type="text" name="omschrijving" value="{{ uitgave.omschrijving if uitgave else '' }}" required>
+      </div>
+      <div class="field">
+        <label>FACTUURNUMMER</label>
+        <input type="text" name="factuurnummer" value="{{ uitgave.factuurnummer if uitgave and uitgave.factuurnummer else '' }}">
+      </div>
+      <div class="field">
+        <label>TOTAAL INCL. BTW (rekent excl. uit)</label>
+        <input type="number" name="totaal_incl_btw" id="totaal_incl_btw" value="{{ uitgave.totaal_incl_btw if uitgave and uitgave.totaal_incl_btw is not none else '' }}" step="0.01" min="0">
       </div>
       <div class="field">
         <label>BEDRAG EXCL. BTW *</label>
@@ -61,4 +98,75 @@
 </form>
 </div>
 
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const form = document.getElementById('uitgave-form');
+  const fileIn = document.getElementById('bijlage');
+  const btn = document.getElementById('ocr-btn');
+  const status = document.getElementById('ocr-status');
+  const totaal = document.getElementById('totaal_incl_btw');
+  const excl = form.elements['bedrag_excl_btw'];
+  const btw = form.elements['btw_percentage'];
+  const ocrMogelijk = {{ 'true' if ocr_beschikbaar or pdf_beschikbaar else 'false' }};
+
+  function herbereken() {
+    const t = parseFloat(totaal.value);
+    if (!isNaN(t)) excl.value = (t / (1 + parseFloat(btw.value) / 100)).toFixed(2);
+  }
+  totaal.addEventListener('input', herbereken);
+  btw.addEventListener('change', () => { if (totaal.value) herbereken(); });
+
+  fileIn.addEventListener('change', () => { btn.disabled = !ocrMogelijk || !fileIn.files.length; });
+
+  function zet(naam, waarde, overschrijf) {
+    const el = form.elements[naam];
+    if (!el || waarde === undefined || waarde === null || waarde === '') return false;
+    if (!overschrijf && el.value) return false;
+    el.value = waarde;
+    el.style.outline = '1px solid var(--amber)';
+    return true;
+  }
+
+  btn.addEventListener('click', async () => {
+    if (!fileIn.files.length) return;
+    const fd = new FormData();
+    fd.append('bijlage', fileIn.files[0]);
+    btn.disabled = true;
+    status.style.color = 'var(--muted)';
+    status.textContent = 'Bezig met uitlezen… (scans kunnen even duren)';
+    try {
+      const r = await fetch('{{ url_for('uitgave_ocr') }}', { method: 'POST', body: fd });
+      const d = await r.json();
+      if (!d.ok) throw new Error(d.fout || 'Onbekende fout');
+      const v = d.velden || {};
+      let n = 0;
+      n += zet('datum', v.datum, true);
+      n += zet('leverancier', v.leverancier, false);
+      n += zet('factuurnummer', v.factuurnummer, true);
+      if (v.btw_percentage !== undefined) n += zet('btw_percentage', String(v.btw_percentage), true);
+      n += zet('totaal_incl_btw', v.totaal_incl_btw, true);
+      if (v.bedrag_excl_btw !== undefined) n += zet('bedrag_excl_btw', v.bedrag_excl_btw.toFixed(2), true);
+      else if (v.totaal_incl_btw !== undefined) { herbereken(); n++; }
+      if (!form.elements['omschrijving'].value) {
+        const oms = 'Factuur ' + (v.leverancier || '') + (v.factuurnummer ? ' ' + v.factuurnummer : '');
+        if (oms.trim() !== 'Factuur') n += zet('omschrijving', oms.trim(), false);
+      }
+      document.getElementById('ocr-tekst').textContent = d.tekst;
+      document.getElementById('ocr-tekst-wrap').style.display = '';
+      status.style.color = n ? 'var(--amber)' : 'var(--muted)';
+      status.textContent = n
+        ? `${n} veld(en) voorgevuld via ${d.methode === 'ocr' ? 'OCR' : 'PDF-tekst'} — controleer de gemarkeerde velden.`
+        : 'Tekst gelezen, maar geen velden herkend. Vul handmatig in; het bestand wordt wel als bijlage bewaard.';
+    } catch (e) {
+      status.style.color = 'var(--red, #e05252)';
+      status.textContent = 'OCR mislukt: ' + e.message + ' Het bestand wordt wel als bijlage opgeslagen.';
+    } finally {
+      btn.disabled = !ocrMogelijk;
+    }
+  });
+})();
+</script>
 {% endblock %}
