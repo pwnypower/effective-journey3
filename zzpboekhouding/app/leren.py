@@ -106,32 +106,46 @@ def _zoek_label(rij: list[dict], label: str) -> int | None:
 
 
 def _tot_gat(woorden: list[dict], max_gat: float = 0.03) -> list[dict]:
+    """Woorden direct na een label: stopt bij een groot gat of bij het volgende label
+    (bv. 'KvK:' verderop op dezelfde regel), zodat dat niet in de waarde belandt."""
     out = []
     for w in woorden:
         if out and w["x"] - (out[-1]["x"] + out[-1]["w"]) > max_gat:
+            break
+        if out and ocr.is_labelwoord(w["t"]):
             break
         out.append(w)
     return out
 
 
 def _waarde(veld: str, woorden: list[dict]):
-    """Zet woorden om naar een waarde voor het veld; None als het niet klopt."""
+    """Zet woorden om naar (waarde, gebruikte woorden) voor het veld; (None, []) als het
+    niet klopt. Alleen de woorden die de waarde echt vormen komen terug, zodat bv. een
+    'KvK: 09108469' verderop op de rij niet gemarkeerd of geleerd wordt."""
     if not woorden:
-        return None
-    tekst = " ".join(w["t"] for w in woorden)
-    if veld in VELDEN_BEDRAG:
-        b = ocr.bedragen_in(tekst)
-        return b[0] if b else None
-    if veld == "datum":
-        return ocr.datum_in(tekst)
+        return None, []
+    if veld in VELDEN_BEDRAG or veld == "datum":
+        lees = ocr.bedragen_in if veld in VELDEN_BEDRAG else (lambda t: [ocr.datum_in(t)] if ocr.datum_in(t) else [])
+        # Kleinste aaneengesloten reeks woorden (max. 4) die een waarde oplevert
+        for lengte in range(1, min(4, len(woorden)) + 1):
+            for i in range(len(woorden) - lengte + 1):
+                deel = woorden[i:i + lengte]
+                v = lees(" ".join(w["t"] for w in deel))
+                if v:
+                    return v[0], deel
+        return None, []
     if veld == "factuurnummer":
         for w in woorden:
             t = w["t"].strip(":#.,")
-            if re.search(r"\d", t) and len(t) >= 3:
-                return t
-        return None
-    tekst = tekst.strip(" :-|")
-    return tekst or None
+            if re.search(r"\d", t) and len(t) >= 3 and not ocr.is_identificatie(t) \
+                    and not ocr.datum_in(t):
+                return t, [w]
+        return None, []
+    # Tekstvelden: losse identificaties (KvK, IBAN, btw-nr) en hun labels weglaten
+    deel = [w for w in woorden if not ocr.is_identificatie(w["t"]) and not ocr.is_labelwoord(w["t"])
+            and w["t"].strip(" :-|#")]
+    tekst = " ".join(w["t"] for w in deel).strip(" :-|")
+    return (tekst, deel) if tekst else (None, [])
 
 
 def zoek_anker(doc: dict, veld: str, anker: dict):
@@ -147,12 +161,10 @@ def zoek_anker(doc: dict, veld: str, anker: dict):
             idx = _zoek_label(rij, anker["label"])
             if idx is None:
                 continue
-            rest = rij[idx + 1:]
-            if tekstveld:
-                rest = _tot_gat(rest, 0.04)
-            v = _waarde(veld, rest)
+            rest = _tot_gat(rij[idx + 1:], 0.04 if tekstveld else 0.08)
+            v, gebruikt = _waarde(veld, rest)
             if v is not None:
-                return v, [w["id"] for w in rest]
+                return v, [w["id"] for w in gebruikt]
 
     # 2. Label erboven (tabelkop): woorden in de rij eronder in dezelfde kolom
     if anker.get("boven"):
@@ -165,9 +177,9 @@ def zoek_anker(doc: dict, veld: str, anker: dict):
                 if pi2 != pi:
                     break
                 kolom = [w for w in onder if w["x"] < x1 and w["x"] + w["w"] > x0]
-                v = _waarde(veld, kolom)
+                v, gebruikt = _waarde(veld, kolom)
                 if v is not None:
-                    return v, [w["id"] for w in kolom]
+                    return v, [w["id"] for w in gebruikt]
 
     # 3. Zelfde plek op de pagina
     pag = doc.get("paginas", [])
@@ -177,9 +189,9 @@ def zoek_anker(doc: dict, veld: str, anker: dict):
                       if box[0] - dx <= w["x"] + w["w"] / 2 <= box[2] + dx
                       and box[1] - dy <= w["y"] + w["h"] / 2 <= box[3] + dy]
         kandidaten.sort(key=lambda w: (w["r"], w["x"]))
-        v = _waarde(veld, kandidaten)
+        v, gebruikt = _waarde(veld, kandidaten)
         if v is not None:
-            return v, [w["id"] for w in kandidaten]
+            return v, [w["id"] for w in gebruikt]
     return None, []
 
 
@@ -194,11 +206,12 @@ def regels_uit_zone(doc: dict, zone: dict, standaard_pct) -> tuple[list[dict], l
         if cy < zone.get("y0", 0) - 0.008:
             continue
         tekst = ocr.rij_tekst(rij)
-        if ocr._KW_EXCL.search(tekst) or ocr._KW_TOTAAL.search(tekst) or \
-                (ocr._KW_BTW.search(tekst) and not ocr._KW_GEEN_BTW_BEDRAG.search(tekst)):
+        if ocr.is_totaalregel(tekst):
             break
         if zone.get("eind_label") and _zoek_label(rij, zone["eind_label"]) is not None:
             break
+        if ocr._KW_GEEN_REGEL.search(tekst) or ocr.datum_in(tekst):
+            continue
         # Bedrag uit de geleerde kolom halen (niet stukprijs of aantal)
         bedrag_w = None
         if zone.get("bedrag_x") is not None:
@@ -216,6 +229,20 @@ def regels_uit_zone(doc: dict, zone: dict, standaard_pct) -> tuple[list[dict], l
         regels.append(reg)
         ids.extend(w["id"] for w in rij)
     return regels, ids
+
+
+def omschrijving_uit_regels(regels: list[dict], leverancier: str = "",
+                            nummer: str = "") -> str:
+    """Omschrijving voor facturen zonder algemene omschrijving: samengesteld uit de
+    factuurregels, of 'Factuur <leverancier> <nummer>' als er geen regels zijn."""
+    namen = [r.get("omschrijving", "").strip() for r in regels if r.get("omschrijving", "").strip()]
+    if not namen:
+        return " ".join(x for x in ("Factuur", leverancier, nummer) if x).strip()
+    if len(namen) <= 2:
+        tekst = ", ".join(namen)
+    else:
+        tekst = f"{namen[0]}, {namen[1]} + {len(namen) - 2} meer"
+    return tekst[:120]
 
 
 def vul_afgeleid(v: dict) -> dict:
@@ -303,7 +330,8 @@ def analyseer(doc: dict, profielen: list[dict], eigen_namen: list[str],
             if ruw:
                 regels = _regels_naar_excl(_klopt_met_totalen(ruw, velden), velden)
                 gevonden["regels"] = ids
-        if "omschrijving" not in velden and profiel.get("omschrijving"):
+        if "omschrijving" not in velden and profiel.get("omschrijving") \
+                and not profiel.get("omschrijving_uit_regels"):
             velden["omschrijving"] = profiel["omschrijving"].replace(
                 "{factuurnummer}", str(velden.get("factuurnummer", ""))).strip()
             bronnen["omschrijving"] = "standaard"
@@ -311,8 +339,8 @@ def analyseer(doc: dict, profielen: list[dict], eigen_namen: list[str],
     if not regels:
         regels = ocr.herken_regels(tekst, velden)
     if regels and "omschrijving" not in velden:
-        velden["omschrijving"] = regels[0]["omschrijving"] + (" e.a." if len(regels) > 1 else "")
-        bronnen["omschrijving"] = "herkend"
+        velden["omschrijving"] = omschrijving_uit_regels(regels)
+        bronnen["omschrijving"] = "regels"
 
     return {
         "velden": velden,
@@ -358,5 +386,11 @@ def werk_profiel_bij(bestaand: dict | None, naam: str, standaard: dict,
     for k in ("categorie", "btw_percentage", "zakelijk_percentage", "omschrijving"):
         if standaard.get(k) not in (None, ""):
             p[k] = standaard[k]
+    # Omschrijving automatisch uit de regels: geen vaste tekst onthouden, alleen de keuze
+    if standaard.get("omschrijving_uit_regels"):
+        p["omschrijving_uit_regels"] = True
+        p.pop("omschrijving", None)
+    elif standaard.get("omschrijving"):
+        p["omschrijving_uit_regels"] = False
     p["aantal"] = int(p.get("aantal") or 0) + 1
     return p

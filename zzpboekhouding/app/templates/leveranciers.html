@@ -44,6 +44,7 @@
       <td class="mono" style="font-size:10px;color:var(--muted)">
         {% if p.categorie %}<div>{{ p.categorie }}</div>{% endif %}
         {% if p.btw_percentage is not none %}<div>{{ p.btw_percentage|int }}% btw</div>{% endif %}
+        {% if p.omschrijving_uit_regels %}<div>Omschrijving uit regels</div>{% elif p.omschrijving %}<div>"{{ p.omschrijving }}"</div>{% endif %}
         {% if p.zakelijk_percentage is not none and p.zakelijk_percentage != 100 %}<div>{{ p.zakelijk_percentage|int }}% zakelijk</div>{% endif %}
       </td>
       <td class="mono" style="font-size:11px">{{ p.aantal or 0 }}×</td>

@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.4.2
+- Fix: bij een geleerd label werd de rest van de rij (bv. "KVK: 09108469" of het IBAN verderop) mee gemarkeerd en geleerd. Nu stopt de waarde bij het volgende label of een groot gat, en worden alleen de woorden van de waarde zelf gemarkeerd en onthouden. Bestaande, te ruim geleerde posities herstellen zich bij de volgende keer opslaan
+- Fix: datums met puntjes (31.10.2026) werden als bedrag gelezen
+- Fix: "CV" (bv. CV-ketel) werd als rechtsvorm C.V. gezien, waardoor een factuurregel als leverancier werd gekozen; rijen met een bedrag tellen niet meer als leveranciersnaam
+- Fix: een "BTW: NL…"-regel in de kop van de factuur stopte de herkenning van factuurregels
+- Facturen met één regel krijgen nu ook een omschrijving uit die regel
+- Datums als 31-okt-2026 en 5 okt '26 worden herkend
+
+## 2.4.1
+- Omschrijving is niet meer verplicht: zonder eigen omschrijving wordt hij automatisch samengesteld uit de factuurregels (bv. "Webhosting, Domeinnaam + 1 meer") of "Factuur <leverancier> <nummer>"
+- De omschrijving loopt live mee als je regels tagt, toevoegt of verwijdert, totdat je hem zelf aanpast (◇ UIT REGELS)
+- Per leverancier wordt onthouden of de omschrijving uit de regels komt, zodat een volgende factuur niet de tekst van de vorige maand krijgt
+
 ## 2.4.0
 - Taggen op de factuur: na het uitlezen staat de factuur in beeld; kies een veld (leverancier, datum, factuurnummer, omschrijving, totaal, excl. btw, btw-bedrag of regel) en tik de juiste woorden aan
 - Leren per leverancier: bij opslaan worden herkenning (btw-nummer, KvK, IBAN, website), geleerde posities/labels per veld, de plek van de factuurregels en standaardwaarden (categorie, btw%, zakelijk%, omschrijving) onthouden en bij de volgende factuur toegepast
