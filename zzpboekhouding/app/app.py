@@ -16,6 +16,7 @@ from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 
 import ocr as _ocr
+import leren as _leren
 
 load_dotenv()
 
@@ -178,6 +179,20 @@ def init_db():
             leverancier TEXT,
             notities TEXT
         );
+        CREATE TABLE IF NOT EXISTS uitgave_regels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            uitgave_id INTEGER NOT NULL,
+            omschrijving TEXT NOT NULL,
+            bedrag_excl_btw REAL NOT NULL,
+            btw_percentage REAL NOT NULL DEFAULT 21,
+            FOREIGN KEY (uitgave_id) REFERENCES uitgaven (id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS leveranciers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            naam TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            profiel TEXT NOT NULL DEFAULT '{}',
+            bijgewerkt TEXT
+        );
         CREATE TABLE IF NOT EXISTS producten (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             naam TEXT NOT NULL,
@@ -272,7 +287,8 @@ def init_db():
         except Exception:
             pass
     for col, defn in [("bijlage_pad", "TEXT"), ("bijlage_naam", "TEXT"),
-                      ("factuurnummer", "TEXT"), ("totaal_incl_btw", "REAL")]:
+                      ("factuurnummer", "TEXT"), ("totaal_incl_btw", "REAL"),
+                      ("btw_bedrag", "REAL")]:
         try:
             db.execute(f"ALTER TABLE uitgaven ADD COLUMN {col} {defn}")
         except Exception:
@@ -1420,18 +1436,130 @@ def product_verwijderen(pid):
 
 @app.route("/uitgaven")
 def uitgaven():
-    return render_template("uitgaven.html", uitgaven=get_db().execute("SELECT * FROM uitgaven ORDER BY datum DESC").fetchall())
+    return render_template("uitgaven.html", uitgaven=get_db().execute(
+        "SELECT u.*, (SELECT COUNT(*) FROM uitgave_regels r WHERE r.uitgave_id=u.id) AS n_regels, "
+        "(SELECT COUNT(DISTINCT btw_percentage) FROM uitgave_regels r WHERE r.uitgave_id=u.id) AS n_tarieven "
+        "FROM uitgaven u ORDER BY datum DESC").fetchall())
 
 
-def _uitgave_velden():
+def _float(v, standaard=None):
+    try:
+        return float(str(v).replace(",", ".")) if str(v).strip() != "" else standaard
+    except (TypeError, ValueError):
+        return standaard
+
+
+def _form_regels():
+    """Factuurregels uit het formulier (regel_omschrijving[], regel_bedrag[], regel_btw[])."""
     f = request.form
-    totaal = f.get("totaal_incl_btw", "").strip()
-    return (f["datum"], f["omschrijving"], f.get("categorie"),
-            float(f["bedrag_excl_btw"]), float(f.get("btw_percentage", 21)),
+    regels = []
+    for oms, bedrag, pct in zip(f.getlist("regel_omschrijving"), f.getlist("regel_bedrag"),
+                                f.getlist("regel_btw")):
+        b = _float(bedrag)
+        if b is None and not oms.strip():
+            continue
+        regels.append((oms.strip() or "—", b or 0.0, _float(pct, 21.0)))
+    return regels
+
+
+def _uitgave_velden(regels):
+    f = request.form
+    totaal = _float(f.get("totaal_incl_btw"))
+    if regels:
+        excl = round(sum(r[1] for r in regels), 2)
+        btw_bedrag = round(sum(r[1] * r[2] / 100 for r in regels), 2)
+        # btw% van de grootste regel (voor weergave); berekeningen gebruiken btw_bedrag
+        btw_pct = max(regels, key=lambda r: abs(r[1]))[2]
+        if totaal is None:
+            totaal = round(excl + btw_bedrag, 2)
+    else:
+        excl = float(f["bedrag_excl_btw"])
+        btw_pct = float(f.get("btw_percentage", 21))
+        btw_bedrag = None
+    return (f["datum"], f["omschrijving"], f.get("categorie"), excl, btw_pct,
             float(f.get("zakelijk_percentage", 100)),
             f.get("leverancier"), f.get("notities"),
-            f.get("factuurnummer", "").strip() or None,
-            float(totaal) if totaal else None)
+            f.get("factuurnummer", "").strip() or None, totaal, btw_bedrag)
+
+
+def _sla_regels_op(db, uid, regels):
+    db.execute("DELETE FROM uitgave_regels WHERE uitgave_id=?", (uid,))
+    db.executemany(
+        "INSERT INTO uitgave_regels (uitgave_id, omschrijving, bedrag_excl_btw, btw_percentage) VALUES (?,?,?,?)",
+        [(uid, *r) for r in regels])
+
+
+# ─── Leveranciersprofielen (leren van correcties) ────────────────────────────
+
+def _profielen(db):
+    out = []
+    for r in db.execute("SELECT * FROM leveranciers ORDER BY naam").fetchall():
+        try:
+            p = _json.loads(r["profiel"] or "{}")
+        except ValueError:
+            p = {}
+        p.update(id=r["id"], naam=r["naam"], bijgewerkt=r["bijgewerkt"])
+        out.append(p)
+    return out
+
+
+def _eigen_gegevens():
+    s = get_settings()
+    namen = [s.get("bedrijfsnaam") or ""]
+    ids = {s.get(k) or "" for k in ("kvk", "btwnummer", "iban")}
+    van = s.get("smtp_from") or ""
+    if "@" in van:
+        ids.add(van.split("@")[-1].strip(" >").upper())
+    return namen, ids
+
+
+def _leer_van_formulier(db):
+    """Werkt het leveranciersprofiel bij met de door de gebruiker gecontroleerde waarden."""
+    f = request.form
+    naam = (f.get("leverancier") or "").strip()
+    if not naam or not f.get("leer_onthouden"):
+        return None
+    try:
+        leer = _json.loads(f.get("leer_data") or "{}")
+    except ValueError:
+        leer = {}
+    if not leer and not f.get("ocr_gebruikt"):
+        return None
+    kenmerken = [k for k in leer.get("kenmerken") or [] if isinstance(k, str)]
+    nummer = (f.get("factuurnummer") or "").strip()
+    oms = (f.get("omschrijving") or "").strip()
+    if nummer and nummer in oms:
+        oms = oms.replace(nummer, "{factuurnummer}")
+    standaard = {
+        "categorie": f.get("categorie"),
+        "btw_percentage": _float(f.get("btw_percentage")),
+        "zakelijk_percentage": _float(f.get("zakelijk_percentage")),
+        "omschrijving": oms,
+    }
+    rij = db.execute("SELECT * FROM leveranciers WHERE naam=? COLLATE NOCASE", (naam,)).fetchone()
+    bestaand = _json.loads(rij["profiel"]) if rij else None
+    profiel = _leren.werk_profiel_bij(bestaand, naam, standaard, kenmerken,
+                                      leer.get("ankers") or {}, leer.get("regelzone"))
+    opslaan = {k: v for k, v in profiel.items() if k not in ("id", "naam", "bijgewerkt")}
+    nu = datetime.now().isoformat(timespec="seconds")
+    if rij:
+        db.execute("UPDATE leveranciers SET naam=?, profiel=?, bijgewerkt=? WHERE id=?",
+                   (naam, _json.dumps(opslaan), nu, rij["id"]))
+    else:
+        db.execute("INSERT INTO leveranciers (naam, profiel, bijgewerkt) VALUES (?,?,?)",
+                   (naam, _json.dumps(opslaan), nu))
+    # Kenmerken horen maar bij één leverancier: weghalen bij andere profielen
+    if kenmerken:
+        for p in _profielen(db):
+            if p["naam"].lower() == naam.lower():
+                continue
+            rest = [k for k in p.get("kenmerken") or [] if k not in kenmerken]
+            if len(rest) != len(p.get("kenmerken") or []):
+                p["kenmerken"] = rest
+                db.execute("UPDATE leveranciers SET profiel=? WHERE id=?",
+                           (_json.dumps({k: v for k, v in p.items()
+                                         if k not in ("id", "naam", "bijgewerkt")}), p["id"]))
+    return naam
 
 
 def _bijlage_bestandspad(naam):
@@ -1467,8 +1595,14 @@ def _bewaar_bijlage(db, uid):
 
 
 def _uitgave_form(uitgave=None):
+    regels = []
+    if uitgave:
+        regels = [dict(r) for r in get_db().execute(
+            "SELECT omschrijving, bedrag_excl_btw, btw_percentage FROM uitgave_regels WHERE uitgave_id=? ORDER BY id",
+            (uitgave["id"],)).fetchall()]
     return render_template("uitgave_form.html", vandaag=date.today().isoformat(),
-                           uitgave=uitgave, ocr_beschikbaar=_ocr.ocr_beschikbaar(),
+                           uitgave=uitgave, regels=regels,
+                           ocr_beschikbaar=_ocr.ocr_beschikbaar(),
                            pdf_beschikbaar=_ocr.pdf_beschikbaar())
 
 
@@ -1476,13 +1610,16 @@ def _uitgave_form(uitgave=None):
 def uitgave_nieuw():
     if request.method == "POST":
         db = get_db()
+        regels = _form_regels()
         cur = db.execute(
-            "INSERT INTO uitgaven (datum,omschrijving,categorie,bedrag_excl_btw,btw_percentage,zakelijk_percentage,leverancier,notities,factuurnummer,totaal_incl_btw) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            _uitgave_velden(),
+            "INSERT INTO uitgaven (datum,omschrijving,categorie,bedrag_excl_btw,btw_percentage,zakelijk_percentage,leverancier,notities,factuurnummer,totaal_incl_btw,btw_bedrag) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            _uitgave_velden(regels),
         )
+        _sla_regels_op(db, cur.lastrowid, regels)
         _bewaar_bijlage(db, cur.lastrowid)
+        geleerd = _leer_van_formulier(db)
         db.commit()
-        flash("Uitgave toegevoegd.", "success")
+        flash("Uitgave toegevoegd." + (f" Geleerd voor leverancier {geleerd}." if geleerd else ""), "success")
         return redirect(url_for("uitgaven"))
     return _uitgave_form()
 
@@ -1491,18 +1628,21 @@ def uitgave_nieuw():
 def uitgave_bewerken(uid):
     db = get_db()
     if request.method == "POST":
+        regels = _form_regels()
         db.execute(
-            "UPDATE uitgaven SET datum=?,omschrijving=?,categorie=?,bedrag_excl_btw=?,btw_percentage=?,zakelijk_percentage=?,leverancier=?,notities=?,factuurnummer=?,totaal_incl_btw=? WHERE id=?",
-            _uitgave_velden() + (uid,),
+            "UPDATE uitgaven SET datum=?,omschrijving=?,categorie=?,bedrag_excl_btw=?,btw_percentage=?,zakelijk_percentage=?,leverancier=?,notities=?,factuurnummer=?,totaal_incl_btw=?,btw_bedrag=? WHERE id=?",
+            _uitgave_velden(regels) + (uid,),
         )
+        _sla_regels_op(db, uid, regels)
         if request.form.get("bijlage_verwijderen") and not request.files.get("bijlage"):
             oud = db.execute("SELECT bijlage_pad FROM uitgaven WHERE id=?", (uid,)).fetchone()
             if oud:
                 _verwijder_bijlagebestand(oud["bijlage_pad"])
             db.execute("UPDATE uitgaven SET bijlage_pad=NULL, bijlage_naam=NULL WHERE id=?", (uid,))
         _bewaar_bijlage(db, uid)
+        geleerd = _leer_van_formulier(db)
         db.commit()
-        flash("Uitgave bijgewerkt.", "success")
+        flash("Uitgave bijgewerkt." + (f" Geleerd voor leverancier {geleerd}." if geleerd else ""), "success")
         return redirect(url_for("uitgaven"))
     uitgave = db.execute("SELECT * FROM uitgaven WHERE id=?", (uid,)).fetchone()
     if not uitgave:
@@ -1537,29 +1677,88 @@ def uitgave_bijlage(uid):
                      as_attachment=request.args.get("download") == "1")
 
 
+def _ocr_resultaat(pad):
+    doc = _ocr.lees_document(pad)
+    if not doc["methode"]:
+        return jsonify(ok=False, fout="OCR niet beschikbaar op deze installatie "
+                                      "(tesseract/poppler ontbreekt)."), 501
+    if not doc["tekst"].strip():
+        return jsonify(ok=False, fout="Geen tekst gevonden in het bestand."), 422
+    db = get_db()
+    eigen_namen, eigen_ids = _eigen_gegevens()
+    bekende = [r["leverancier"] for r in db.execute(
+        "SELECT DISTINCT leverancier FROM uitgaven WHERE leverancier IS NOT NULL AND leverancier != ''")]
+    analyse = _leren.analyseer(doc, _profielen(db), eigen_namen, eigen_ids, bekende)
+    return jsonify(ok=True, methode=doc["methode"], tekst=doc["tekst"][:8000],
+                   paginas=doc["paginas"], **analyse)
+
+
 @app.route("/uitgaven/ocr", methods=["POST"])
-def uitgave_ocr():
-    """Leest een geüploade factuur uit (OCR / PDF-tekst) en geeft voorgestelde velden terug."""
+@app.route("/uitgaven/<int:uid>/ocr", methods=["POST"])
+def uitgave_ocr(uid=None):
+    """Leest een factuur uit (OCR / PDF-tekst) en geeft voorstellen + woordposities terug.
+    Zonder upload wordt de bewaarde bijlage van uitgave `uid` gebruikt."""
+    import tempfile
     f = request.files.get("bijlage")
+    if (not f or not f.filename) and uid:
+        u = get_db().execute("SELECT bijlage_pad FROM uitgaven WHERE id=?", (uid,)).fetchone()
+        if not u or not u["bijlage_pad"]:
+            return jsonify(ok=False, fout="Deze uitgave heeft geen bijlage."), 404
+        pad = _bijlage_bestandspad(os.path.basename(u["bijlage_pad"]))
+        if not os.path.exists(pad):
+            return jsonify(ok=False, fout="Bijlagebestand ontbreekt op schijf."), 404
+        try:
+            return _ocr_resultaat(pad)
+        except Exception as e:  # noqa: BLE001
+            return jsonify(ok=False, fout=f"Uitlezen mislukt: {e}"), 500
     if not f or not f.filename:
         return jsonify(ok=False, fout="Geen bestand ontvangen."), 400
     ext = os.path.splitext(secure_filename(f.filename) or "")[1].lower()
     if ext not in _ocr.TOEGESTANE_EXT:
         return jsonify(ok=False, fout="Bestandstype niet ondersteund (PDF, JPG, PNG, TIFF, WEBP)."), 400
-    import tempfile
     with tempfile.TemporaryDirectory() as tmp:
         pad = os.path.join(tmp, "upload" + ext)
         f.save(pad)
         try:
-            res = _ocr.verwerk_bestand(pad)
+            return _ocr_resultaat(pad)
         except Exception as e:  # noqa: BLE001
             return jsonify(ok=False, fout=f"Uitlezen mislukt: {e}"), 500
-    if not res["methode"]:
-        return jsonify(ok=False, fout="OCR niet beschikbaar op deze installatie "
-                                      "(tesseract/poppler ontbreekt)."), 501
-    if not res["tekst"].strip():
-        return jsonify(ok=False, fout="Geen tekst gevonden in het bestand."), 422
-    return jsonify(ok=True, **res)
+
+
+# ─── Leveranciers (geleerde profielen) ────────────────────────────────────────
+
+VELD_NAMEN = {"datum": "Datum", "factuurnummer": "Factuurnummer", "omschrijving": "Omschrijving",
+              "totaal_incl_btw": "Totaal incl.", "bedrag_excl_btw": "Excl. btw",
+              "btw_bedrag": "Btw-bedrag"}
+
+
+@app.route("/leveranciers")
+def leveranciers():
+    return render_template("leveranciers.html", profielen=_profielen(get_db()), veld_namen=VELD_NAMEN)
+
+
+@app.route("/leveranciers/<int:lid>/verwijderen", methods=["POST"])
+def leverancier_verwijderen(lid):
+    db = get_db()
+    db.execute("DELETE FROM leveranciers WHERE id=?", (lid,))
+    db.commit()
+    flash("Geleerd profiel verwijderd.", "success")
+    return redirect(url_for("leveranciers"))
+
+
+@app.route("/leveranciers/<int:lid>/vergeet", methods=["POST"])
+def leverancier_vergeet(lid):
+    """Vergeet de geleerde posities (ankers/regels), maar behoud naam en kenmerken."""
+    db = get_db()
+    r = db.execute("SELECT profiel FROM leveranciers WHERE id=?", (lid,)).fetchone()
+    if r:
+        p = _json.loads(r["profiel"] or "{}")
+        p.pop("ankers", None)
+        p.pop("regelzone", None)
+        db.execute("UPDATE leveranciers SET profiel=? WHERE id=?", (_json.dumps(p), lid))
+        db.commit()
+        flash("Geleerde posities gewist.", "success")
+    return redirect(url_for("leveranciers"))
 
 
 @app.errorhandler(413)
@@ -1584,7 +1783,7 @@ def btw_overzicht():
         eind = f"{jaar}-{sm+2:02d}-31"
         btw_v = db.execute("SELECT COALESCE(SUM(fr.aantal*fr.prijs_per_stuk*fr.btw_percentage/100.0),0) AS t FROM factuurregels fr JOIN facturen f ON f.id=fr.factuur_id WHERE f.factuurdatum BETWEEN ? AND ? AND f.status!='concept'", (start, eind)).fetchone()["t"]
         omzet = db.execute("SELECT COALESCE(SUM(fr.aantal*fr.prijs_per_stuk),0) AS t FROM factuurregels fr JOIN facturen f ON f.id=fr.factuur_id WHERE f.factuurdatum BETWEEN ? AND ? AND f.status!='concept'", (start, eind)).fetchone()["t"]
-        btw_vb = db.execute("SELECT COALESCE(SUM(bedrag_excl_btw*btw_percentage/100.0*(zakelijk_percentage/100.0)),0) AS t FROM uitgaven WHERE datum BETWEEN ? AND ?", (start, eind)).fetchone()["t"]
+        btw_vb = db.execute("SELECT COALESCE(SUM(COALESCE(btw_bedrag, bedrag_excl_btw*btw_percentage/100.0)*(zakelijk_percentage/100.0)),0) AS t FROM uitgaven WHERE datum BETWEEN ? AND ?", (start, eind)).fetchone()["t"]
         kosten = db.execute("SELECT COALESCE(SUM(bedrag_excl_btw*(zakelijk_percentage/100.0)),0) AS t FROM uitgaven WHERE datum BETWEEN ? AND ?", (start, eind)).fetchone()["t"]
         kwartalen.append({"kwartaal": q, "omzet_excl": round(omzet, 2), "kosten_excl": round(kosten, 2),
                           "btw_verschuldigd": round(btw_v, 2), "btw_voorbelasting": round(btw_vb, 2),

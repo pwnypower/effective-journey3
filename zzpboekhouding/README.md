@@ -97,6 +97,13 @@ in te laten vullen. PDF's met een tekstlaag worden direct gelezen; scans en foto
 tesseract OCR (Nederlands + Engels). Controleer de voorgevulde (gemarkeerde) velden altijd
 voordat je opslaat.
 
+**Corrigeren en leren:** klopt een veld niet, kies dan bovenin het veld (bv. LEVERANCIER of
+TOTAAL INCL.) en tik op de getoonde factuur de juiste woorden aan. Met REGEL tik je
+factuurregels aan; elke regel krijgt een eigen bedrag en btw-tarief. Bij opslaan onthoudt
+de app per leverancier waar alles staat; de volgende factuur van dezelfde leverancier
+wordt dan zo uitgelezen (velden met ● GELEERD). Bekijken of wissen kan via
+**Uitgaven → Geleerde leveranciers**.
+
 Optionele environment variables: `BIJLAGEN_DIR` (opslagmap), `OCR_LANG` (standaard
 `nld+eng`) en `MAX_UPLOAD_MB` (standaard 25).
 

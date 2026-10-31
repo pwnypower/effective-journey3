@@ -35,7 +35,7 @@
         <span class="nav-icon">⊙</span><span class="nav-label">INSTELLINGEN</span>
       </a>
       <div class="nav-div"></div>
-      <a href="{{ url_for('uitgaven') }}" class="nav-item {{ 'active' if request.endpoint in ['uitgaven','uitgave_nieuw','uitgave_bewerken'] }}">
+      <a href="{{ url_for('uitgaven') }}" class="nav-item {{ 'active' if request.endpoint in ['uitgaven','uitgave_nieuw','uitgave_bewerken','leveranciers'] }}">
         <span class="nav-icon">▣</span><span class="nav-label">UITGAVEN</span>
       </a>
       <a href="{{ url_for('btw_overzicht') }}" class="nav-item {{ 'active' if request.endpoint == 'btw_overzicht' }}">

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.4.0
+- Taggen op de factuur: na het uitlezen staat de factuur in beeld; kies een veld (leverancier, datum, factuurnummer, omschrijving, totaal, excl. btw, btw-bedrag of regel) en tik de juiste woorden aan
+- Leren per leverancier: bij opslaan worden herkenning (btw-nummer, KvK, IBAN, website), geleerde posities/labels per veld, de plek van de factuurregels en standaardwaarden (categorie, btw%, zakelijk%, omschrijving) onthouden en bij de volgende factuur toegepast
+- Nieuwe pagina "Geleerde leveranciers" (via Uitgaven) om profielen te bekijken, geleerde posities te wissen of te verwijderen
+- Factuurregels bij uitgaven: meerdere regels met elk een eigen btw-tarief; worden automatisch herkend of getagd. Btw-overzicht rekent met het echte btw-bedrag bij gemengde tarieven
+- Betere herkenning van de leverancier: je eigen bedrijfsnaam en adresblok worden overgeslagen, voettekst ("Naam B.V. | KvK …") en eerder gebruikte leveranciers tellen mee
+- "Factuurbedrag" en "te voldoen" worden herkend als totaal
+
 ## 2.3.0
 - Inkoopfacturen/bonnen uploaden bij uitgaven (PDF, JPG, PNG, TIFF, WEBP), bewaard in `/data/bijlagen`
 - Optioneel uitlezen met OCR (tesseract, NL+EN) of PDF-tekstlaag: datum, leverancier, factuurnummer, totaal, btw% en bedrag excl. btw worden voorgevuld
