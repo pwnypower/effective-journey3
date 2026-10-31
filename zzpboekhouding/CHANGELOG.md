@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.0
+- Inkoopfacturen/bonnen uploaden bij uitgaven (PDF, JPG, PNG, TIFF, WEBP), bewaard in `/data/bijlagen`
+- Optioneel uitlezen met OCR (tesseract, NL+EN) of PDF-tekstlaag: datum, leverancier, factuurnummer, totaal, btw% en bedrag excl. btw worden voorgevuld
+- Nieuwe velden bij uitgaven: factuurnummer en totaal incl. btw (rekent bedrag excl. btw automatisch uit)
+- Bijlage bekijken/downloaden/vervangen/verwijderen; 📎-icoon in het uitgavenoverzicht
+
 ## 2.1.11
 - Beveiliging mollie-relay.php: IP-whitelist hersteld met Mollie's volledige IP-reeksen (incl. 34.76.x.x)
 - .htaccess toegevoegd: blokkeert directe browser-toegang tot mollie-updates.json en mollie-debug.log
