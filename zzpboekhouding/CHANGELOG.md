@@ -6,6 +6,65 @@
 - Nieuwe velden bij uitgaven: factuurnummer en totaal incl. btw (rekent bedrag excl. btw automatisch uit)
 - Bijlage bekijken/downloaden/vervangen/verwijderen; 📎-icoon in het uitgavenoverzicht
 
+## 2.2.7
+- Fix Word-factuur: factuurregels en btw-regels worden direct via python-docx in de tabel gezet (omzeilt de `{%tr %}`-verwerking van docxtpl)
+
+## 2.2.6
+- Fix: `NoneType`-fout bij laden van het Word-template; gesplitste Jinja2-tags worden eerst via python-docx samengevoegd
+- Kortere add-on-omschrijving
+
+## 2.2.5
+- Fix Word-bijlage: kwetsbare XML-injectie vervangen door het samenvoegen van door Word gesplitste runs vóór het renderen
+
+## 2.2.4
+- Alleen versienummer verhoogd
+
+## 2.2.3
+- Fix bijlage bij factuurmail: logging, controle of het template bestaat, en in de melding staat of er een PDF- of Word-bijlage is meegestuurd
+
+## 2.2.2
+- Factuur als PDF-bijlage: Word-factuur wordt via LibreOffice omgezet naar PDF (valt terug op .docx als dat niet lukt)
+- Dockerfile installeert `libreoffice-writer` en `fonts-dejavu-core`
+- Regeleinden genormaliseerd
+
+## 2.2.1
+- Word-template: tabelrijen voor factuurregels en btw-regels worden vóór het renderen ingevoegd, zodat Word-opmaak de tags niet breekt
+
+## 2.2.0
+- Factuur wordt als Word-bijlage meegestuurd met de e-mail
+- Optionele persoonlijke tekst bij het versturen van een factuur
+- Eigen HTML-mailtemplates voor factuur en herinnering (tabblad MAILTEMPLATES in instellingen)
+- Datums in e-mails in Nederlands formaat (dd-mm-jjjj)
+
+## 2.1.22
+- Fix: `datetime.date.today()` vervangen door `date.today()`
+
+## 2.1.21
+- Lege instellingen worden aangevuld met de HA add-on-configuratie (SMTP, bedrijfsnaam, basis-URL)
+- SMTP-wachtwoord, afzender en TLS instelbaar op de instellingenpagina
+
+## 2.1.20
+- Versturen en herinnering weer via gewone formulierknoppen
+- Fouten bij het opbouwen van de mail worden nu ook als melding getoond
+
+## 2.1.19
+- Eigen bevestigingsvenster voor versturen, herinnering, betaallink resetten en verwijderen
+
+## 2.1.17
+- Duidelijkere foutmelding bij mislukte e-mail (inclusief fouttype)
+
+## 2.1.16
+- Betalingsherinnering per e-mail versturen, met eigen mailtemplate en overzicht van verstuurde herinneringen
+- SMTP ondersteunt directe SSL (poort 465) naast STARTTLS
+
+## 2.1.14
+- SMTP-instellingen blijven bewaard als velden leeg worden gelaten
+
+## 2.1.13
+- Factuur- en betaalbevestigingsmail via aparte HTML-templates
+- Mollie OAuth-access-tokens (`access_…`) ondersteund naast API-keys
+- mollie-relay.php: IP-whitelist voor Mollie weer actief, schrijven met file-lock
+
 ## 2.1.11
 - Beveiliging mollie-relay.php: IP-whitelist hersteld met Mollie's volledige IP-reeksen (incl. 34.76.x.x)
 - .htaccess toegevoegd: blokkeert directe browser-toegang tot mollie-updates.json en mollie-debug.log
